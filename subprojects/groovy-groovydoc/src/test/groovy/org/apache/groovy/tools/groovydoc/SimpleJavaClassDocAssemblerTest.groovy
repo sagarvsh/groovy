@@ -16,24 +16,13 @@
  *  specific language governing permissions and limitations
  *  under the License.
  */
+package org.apache.groovy.tools.groovydoc
 
-ext {
-    javaparserVersion = '3.8.3'
-}
-
-dependencies {
-    compile rootProject
-    compile "com.github.javaparser:javaparser-symbol-solver-core:$javaparserVersion"
-    testCompile rootProject.sourceSets.test.runtimeClasspath
-    compile project(':groovy-cli-picocli')
-    compile project(':groovy-templates')
-    runtime project(':groovy-docgenerator')
-    testCompile project(':groovy-test')
-    testCompile "org.apache.ant:ant-testutil:$antVersion"
-}
-
-compileJava {
-    doLast {
-        mkdir "$sourceSets.main.java.outputDir/META-INF"
+class SimpleJavaClassDocAssemblerTest extends GroovyTestCase {
+    void testClassDoc() {
+        def src = SimpleJavaClassDocAssemblerTest.getResourceAsStream('/org/apache/groovy/tools/groovydoc/SimpleJavaClassDocAssemblerTest1.java').text
+        def sjcda = new SimpleJavaClassDocAssembler('org/apache/groovy/tools/groovydoc', 'SimpleJavaClassDocAssemblerTest1.java', src, [], new Properties())
+        sjcda.assemble()
     }
+
 }

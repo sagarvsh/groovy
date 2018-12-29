@@ -108,4 +108,8 @@ public class SourceBuffer {
             lines.add(current);
         }
     }
+
+    public String getContent() {
+        return String.join("", lines);
+    }
 }
