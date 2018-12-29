@@ -28,7 +28,7 @@ import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.nodeTypes.NodeWithJavadoc;
-import com.github.javaparser.ast.visitor.GenericVisitorAdapter;
+import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import com.github.javaparser.javadoc.Javadoc;
 import org.codehaus.groovy.groovydoc.GroovyClassDoc;
 import org.codehaus.groovy.tools.groovydoc.LinkArgument;
@@ -39,8 +39,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 
-public class SimpleJavaClassDocAssembler extends GenericVisitorAdapter<Object, Object> {
+public class SimpleJavaClassDocAssembler extends VoidVisitorAdapter<Object> {
     private final String packagePath;
+    private final String file;
     private final String javaSourceContent;
     private final String className;
     private final List<LinkArgument> links;
@@ -49,6 +50,7 @@ public class SimpleJavaClassDocAssembler extends GenericVisitorAdapter<Object, O
 
     public SimpleJavaClassDocAssembler(String packagePath, String file, String javaSourceContent, List<LinkArgument> links, Properties properties) {
         this.packagePath = packagePath;
+        this.file = file;
         this.javaSourceContent = javaSourceContent;
         this.links = links;
         this.properties = properties;
@@ -62,60 +64,57 @@ public class SimpleJavaClassDocAssembler extends GenericVisitorAdapter<Object, O
         }
     }
 
-    public Map<String, GroovyClassDoc> getGroovyClassDocs() {
+    public Map<String, GroovyClassDoc> assemble() {
+        this.visit(JavaParser.parse(javaSourceContent), null);
         return classDocs;
     }
 
-    public void assemble() {
-        this.visit(JavaParser.parse(javaSourceContent), null);
+    @Override
+    public void visit(final ClassOrInterfaceDeclaration n, final Object arg) {
+        processJavadoc(n);
+        super.visit(n, arg);
     }
 
     @Override
-    public Object visit(final ClassOrInterfaceDeclaration n, final Object arg) {
+    public void visit(final MethodDeclaration n, final Object arg) {
         processJavadoc(n);
-        return super.visit(n, arg);
+        super.visit(n, arg);
     }
 
     @Override
-    public Object visit(final MethodDeclaration n, final Object arg) {
+    public void visit(final ConstructorDeclaration n, final Object arg) {
         processJavadoc(n);
-        return super.visit(n, arg);
+        super.visit(n, arg);
     }
 
     @Override
-    public Object visit(final ConstructorDeclaration n, final Object arg) {
+    public void visit(final FieldDeclaration n, final Object arg) {
         processJavadoc(n);
-        return super.visit(n, arg);
+        super.visit(n, arg);
     }
 
     @Override
-    public Object visit(final FieldDeclaration n, final Object arg) {
+    public void visit(final EnumDeclaration n, final Object arg) {
         processJavadoc(n);
-        return super.visit(n, arg);
+        super.visit(n, arg);
     }
 
     @Override
-    public Object visit(final EnumDeclaration n, final Object arg) {
+    public void visit(final EnumConstantDeclaration n, final Object arg) {
         processJavadoc(n);
-        return super.visit(n, arg);
+        super.visit(n, arg);
     }
 
     @Override
-    public Object visit(final EnumConstantDeclaration n, final Object arg) {
+    public void visit(final AnnotationDeclaration n, final Object arg) {
         processJavadoc(n);
-        return super.visit(n, arg);
+        super.visit(n, arg);
     }
 
     @Override
-    public Object visit(final AnnotationDeclaration n, final Object arg) {
+    public void visit(final AnnotationMemberDeclaration n, final Object arg) {
         processJavadoc(n);
-        return super.visit(n, arg);
-    }
-
-    @Override
-    public Object visit(final AnnotationMemberDeclaration n, final Object arg) {
-        processJavadoc(n);
-        return super.visit(n, arg);
+        super.visit(n, arg);
     }
 
     private void processJavadoc(NodeWithJavadoc n) {
