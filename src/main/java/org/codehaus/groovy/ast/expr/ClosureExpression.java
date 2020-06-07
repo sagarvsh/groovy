@@ -31,17 +31,17 @@ import org.codehaus.groovy.runtime.InvokerHelper;
  * or { i {@code ->} statement } or { i, x, String y {@code ->}  statement }
  */
 public class ClosureExpression extends Expression {
-    
+
     private final Parameter[] parameters;
     private Statement code;
     private VariableScope variableScope;
-    
+
     public ClosureExpression(Parameter[] parameters, Statement code) {
         this.parameters = parameters;
         this.code = code;
         super.setType(ClassHelper.CLOSURE_TYPE.getPlainNodeReference());
     }
-    
+
     public void visit(GroovyCodeVisitor visitor) {
         visitor.visitClosureExpression(this);
     }
@@ -49,7 +49,7 @@ public class ClosureExpression extends Expression {
     public Expression transformExpression(ExpressionTransformer transformer) {
         return this;
     }
-    
+
     public String toString() {
         return super.toString() + InvokerHelper.toString(parameters) + "{ " + code + " }";
     }
@@ -82,12 +82,12 @@ public class ClosureExpression extends Expression {
     }
 
     /**
-     * @return true if one or more explicit parameters are supplied
+     * @return {@code true} if one or more explicit parameters are supplied
      */
     public boolean isParameterSpecified() {
-        return parameters != null && parameters.length > 0;
+        return (parameters != null && parameters.length > 0);
     }
-    
+
     public VariableScope getVariableScope() {
         return variableScope;
     }

@@ -24,7 +24,6 @@ import org.apache.groovy.io.StringBuilderWriter;
 import org.codehaus.groovy.runtime.typehandling.DefaultTypeTransformation;
 
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
 import java.io.Writer;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -285,11 +284,7 @@ public class EncodingGroovyMethods {
             if (byteShift == 0) byteShift = 4;
         }
 
-        try {
-            return buffer.toString().getBytes("ISO-8859-1");
-        } catch (UnsupportedEncodingException e) {
-            throw new RuntimeException("Base 64 decode produced byte values > 255"); // TODO: change this exception type
-        }
+        return buffer.toString().getBytes(StandardCharsets.ISO_8859_1);
     }
 
     /**
@@ -317,9 +312,9 @@ public class EncodingGroovyMethods {
     public static Writable encodeHex(final byte[] data) {
         return new Writable() {
             public Writer writeTo(Writer out) throws IOException {
-                for (int i = 0; i < data.length; i++) {
+                for (byte datum : data) {
                     // convert byte into unsigned hex string
-                    String hexString = Integer.toHexString(data[i] & 0xFF);
+                    String hexString = Integer.toHexString(datum & 0xFF);
 
                     // add leading zero if the length of the string is one
                     if (hexString.length() < 2) {

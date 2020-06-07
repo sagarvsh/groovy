@@ -78,13 +78,15 @@ menuBar {
 
     menu(text: 'Script', mnemonic: 'S') {
         menuItem(runAction)
+        menuItem(runJavaAction)
         checkBoxMenuItem(loopModeAction, selected: controller.loopMode)
         checkBoxMenuItem(saveOnRunAction, selected: controller.saveOnRun)
         menuItem(runSelectionAction)
+        menuItem(runJavaSelectionAction)
         checkBoxMenuItem(threadInterruptAction, selected: controller.threadInterrupt)
         menuItem(interruptAction)
         menuItem(compileAction)
-        checkBoxMenuItem(indyAction, selected: controller.indy)
+        menuItem(compileJavaAction)
         separator()
         menuItem(addClasspathJar)
         menuItem(addClasspathDir)
@@ -94,6 +96,7 @@ menuBar {
         menuItem(inspectLastAction)
         menuItem(inspectVariablesAction)
         menuItem(inspectAstAction)
+        menuItem(inspectCstAction)
         menuItem(inspectTokensAction)
     }
 

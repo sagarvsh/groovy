@@ -23,6 +23,7 @@ import org.codehaus.groovy.ast.AnnotatedNode;
 import org.codehaus.groovy.ast.AnnotationNode;
 import org.codehaus.groovy.ast.ConstructorNode;
 import org.codehaus.groovy.ast.MethodNode;
+import org.codehaus.groovy.ast.ModifierNode;
 import org.codehaus.groovy.ast.Parameter;
 import org.codehaus.groovy.ast.expr.VariableExpression;
 import org.objectweb.asm.Opcodes;
@@ -43,8 +44,6 @@ import static org.apache.groovy.parser.antlr4.GroovyLangParser.VOLATILE;
 
 /**
  * Process modifiers for AST nodes
- * <p>
- * Created by Daniel.Sun on 2016/08/27.
  */
 class ModifierManager {
     private static final Map<Class, List<Integer>> INVALID_MODIFIERS_MAP = Maps.of(

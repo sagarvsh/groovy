@@ -36,7 +36,6 @@ import org.codehaus.groovy.ast.Variable;
 import org.codehaus.groovy.ast.VariableScope;
 import org.codehaus.groovy.ast.expr.ArgumentListExpression;
 import org.codehaus.groovy.ast.expr.ClosureExpression;
-import org.codehaus.groovy.ast.expr.ConstantExpression;
 import org.codehaus.groovy.ast.expr.ConstructorCallExpression;
 import org.codehaus.groovy.ast.expr.DeclarationExpression;
 import org.codehaus.groovy.ast.expr.Expression;
@@ -274,7 +273,7 @@ public class FieldASTTransformation extends ClassCodeExpressionTransformer imple
 
     @Override
     public void visitMethod(MethodNode node) {
-        Boolean oldInsideScriptBody = insideScriptBody;
+        boolean oldInsideScriptBody = insideScriptBody;
         if (node.isScriptBody()) insideScriptBody = true;
         super.visitMethod(node);
         insideScriptBody = oldInsideScriptBody;

@@ -56,7 +56,6 @@ import org.objectweb.asm.Opcodes;
 
 import javax.tools.FileObject;
 import javax.tools.JavaFileObject;
-
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -77,6 +76,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static org.apache.groovy.ast.tools.ConstructorNodeUtils.getFirstIfSpecialConstructorCall;
 import static org.codehaus.groovy.ast.tools.GenericsUtils.correctToGenericsSpec;
 import static org.codehaus.groovy.ast.tools.GenericsUtils.createGenericsSpec;
 
@@ -152,20 +152,31 @@ public class JavaStubGenerator {
                 ),
                 Charset.forName(encoding)
         );
-        generateStubContent(classNode, writer);
+        if (classNode.getNameWithoutPackage().equals("package-info")) {
+            // should just output the package statement
+            try (PrintWriter out = new PrintWriter(writer)) {
+                printPackage(out, classNode);
+            }
+        } else {
+            generateStubContent(classNode, writer);
+        }
 
         javaStubCompilationUnitSet.add(new RawJavaFileObject(createJavaStubFile(fileName).toPath().toUri()));
     }
 
     private void generateStubContent(ClassNode classNode, Writer writer) {
         try (PrintWriter out = new PrintWriter(writer)) {
-            String packageName = classNode.getPackageName();
-            if (packageName != null) {
-                out.println("package " + packageName + ";\n");
-            }
-
+            printPackage(out, classNode);
             printImports(out, classNode);
             printClassContents(out, classNode);
+        }
+    }
+
+    private void printPackage(PrintWriter out, ClassNode classNode) {
+        String packageName = classNode.getPackageName();
+        if (packageName != null) {
+            printAnnotations(out, classNode.getPackage());
+            out.println("package " + packageName + ";\n");
         }
     }
 
@@ -309,7 +320,7 @@ public class JavaStubGenerator {
 
             String className = classNode.getNameWithoutPackage();
             if (classNode instanceof InnerClassNode)
-                className = className.substring(className.lastIndexOf("$") + 1);
+                className = className.substring(className.lastIndexOf('$') + 1);
             out.println(className);
             printGenericsBounds(out, classNode, true);
 
@@ -532,27 +543,6 @@ public class JavaStubGenerator {
         return "\"" + escapeSpecialChars(s) + "\"";
     }
 
-    private static ConstructorCallExpression getConstructorCallExpression(ConstructorNode constructorNode) {
-        Statement code = constructorNode.getCode();
-        if (!(code instanceof BlockStatement))
-            return null;
-
-        BlockStatement block = (BlockStatement) code;
-        List stats = block.getStatements();
-        if (stats == null || stats.isEmpty())
-            return null;
-
-        Statement stat = (Statement) stats.get(0);
-        if (!(stat instanceof ExpressionStatement))
-            return null;
-
-        Expression expr = ((ExpressionStatement) stat).getExpression();
-        if (!(expr instanceof ConstructorCallExpression))
-            return null;
-
-        return (ConstructorCallExpression) expr;
-    }
-
     private void printConstructor(PrintWriter out, ClassNode clazz, ConstructorNode constructorNode) {
         printAnnotations(out, constructorNode);
         // printModifiers(out, constructorNode.getModifiers());
@@ -560,13 +550,16 @@ public class JavaStubGenerator {
         out.print("public "); // temporary hack
         String className = clazz.getNameWithoutPackage();
         if (clazz instanceof InnerClassNode)
-            className = className.substring(className.lastIndexOf("$") + 1);
+            className = className.substring(className.lastIndexOf('$') + 1);
         out.println(className);
 
         printParams(out, constructorNode);
 
-        ConstructorCallExpression constrCall = getConstructorCallExpression(constructorNode);
-        if (constrCall == null || !constrCall.isSpecialCall()) {
+        ClassNode[] exceptions = constructorNode.getExceptions();
+        printExceptions(out, exceptions);
+
+        ConstructorCallExpression constrCall = getFirstIfSpecialConstructorCall(constructorNode.getCode());
+        if (constrCall == null) {
             out.println(" {}");
         } else {
             out.println(" {");
@@ -612,9 +605,9 @@ public class JavaStubGenerator {
 
 
         // if all remaining exceptions are used in the stub we are good
-        outer: for (int i=0; i<superExceptions.length; i++) {
-            ClassNode superExc = superExceptions[i];
-            for (ClassNode stub:stubExceptions) {
+        outer:
+        for (ClassNode superExc : superExceptions) {
+            for (ClassNode stub : stubExceptions) {
                 if (stub.isDerivedFrom(superExc)) continue outer;
             }
             // not found
@@ -716,15 +709,7 @@ public class JavaStubGenerator {
         printParams(out, methodNode);
 
         ClassNode[] exceptions = methodNode.getExceptions();
-        for (int i = 0; i < exceptions.length; i++) {
-            ClassNode exception = exceptions[i];
-            if (i == 0) {
-                out.print("throws ");
-            } else {
-                out.print(", ");
-            }
-            printType(out, exception);
-        }
+        printExceptions(out, exceptions);
 
         if (Traits.isTrait(clazz)) {
             out.println(";");
@@ -758,6 +743,18 @@ public class JavaStubGenerator {
             ClassNode retType = methodNode.getReturnType();
             printReturn(out, retType);
             out.println("}");
+        }
+    }
+
+    private void printExceptions(PrintWriter out, ClassNode[] exceptions) {
+        for (int i = 0; i < exceptions.length; i++) {
+            ClassNode exception = exceptions[i];
+            if (i == 0) {
+                out.print("throws ");
+            } else {
+                out.print(", ");
+            }
+            printType(out, exception);
         }
     }
 
@@ -807,12 +804,9 @@ public class JavaStubGenerator {
     }
 
     private void printReturn(PrintWriter out, ClassNode retType) {
-        String retName = retType.getName();
-        if (!retName.equals("void")) {
+        if (!ClassHelper.VOID_TYPE.equals(retType)) {
             out.print("return ");
-
             printDefaultValue(out, retType);
-
             out.print(";");
         }
     }
@@ -840,7 +834,7 @@ public class JavaStubGenerator {
             printType(out, type.getComponentType());
             out.print("[]");
         } else if (java5 && type.isGenericsPlaceHolder()) {
-            out.print(type.getGenericsTypes()[0].getName());
+            out.print(type.getUnresolvedName());
         } else {
             printGenericsBounds(out, type, false);
         }
@@ -1040,7 +1034,7 @@ public class JavaStubGenerator {
     }
 
     public void clean() {
-        javaStubCompilationUnitSet.parallelStream().peek(FileObject::delete);
+        javaStubCompilationUnitSet.stream().peek(FileObject::delete);
         javaStubCompilationUnitSet.clear();
     }
 

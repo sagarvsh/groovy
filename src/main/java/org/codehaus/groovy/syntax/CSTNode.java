@@ -30,7 +30,6 @@ import java.io.Writer;
  * the result of parsing.  Note that the CSTNode is inextricably linked
  * with the Token in that every CSTNode has a Token as it's root.
  *
- * @see antlr.Parser
  * @see Token
  * @see org.codehaus.groovy.syntax.Reduction
  * @see org.codehaus.groovy.syntax.Types
@@ -85,8 +84,8 @@ public abstract class CSTNode {
      */
     public boolean isOneOf(int[] types) {
         int meaning = getMeaning();
-        for (int i = 0; i < types.length; i++) {
-            if (Types.ofType(meaning, types[i])) {
+        for (int type : types) {
+            if (Types.ofType(meaning, type)) {
                 return true;
             }
         }
@@ -99,8 +98,8 @@ public abstract class CSTNode {
      */
     public boolean isAllOf(int[] types) {
         int meaning = getMeaning();
-        for (int i = 0; i < types.length; i++) {
-            if (!Types.ofType(meaning, types[i])) {
+        for (int type : types) {
+            if (!Types.ofType(meaning, type)) {
                 return false;
             }
         }
@@ -114,9 +113,9 @@ public abstract class CSTNode {
      */
     public int getMeaningAs(int[] types) {
 
-        for (int i = 0; i < types.length; i++) {
-            if (isA(types[i])) {
-                return types[i];
+        for (int type : types) {
+            if (isA(type)) {
+                return type;
             }
         }
 

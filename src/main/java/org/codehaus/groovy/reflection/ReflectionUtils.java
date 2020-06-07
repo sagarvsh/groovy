@@ -35,6 +35,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 
 /**
  * This class contains utility methods to determine which class called the
@@ -56,7 +57,11 @@ public class ReflectionUtils {
         IGNORED_PACKAGES.add("sun.reflect");
         IGNORED_PACKAGES.add("java.security");
         IGNORED_PACKAGES.add("java.lang.invoke");
+        IGNORED_PACKAGES.add("org.codehaus.groovy.vmplugin.v5");
+        IGNORED_PACKAGES.add("org.codehaus.groovy.vmplugin.v6");
         IGNORED_PACKAGES.add("org.codehaus.groovy.vmplugin.v7");
+        IGNORED_PACKAGES.add("org.codehaus.groovy.vmplugin.v8");
+        IGNORED_PACKAGES.add("org.codehaus.groovy.vmplugin.v9");
     }
 
     private static final ClassContextHelper HELPER = new ClassContextHelper();
@@ -93,7 +98,7 @@ public class ReflectionUtils {
      *         enough stackframes to satisfy matchLevel
      */
     public static Class getCallingClass(int matchLevel) {
-        return getCallingClass(matchLevel, Collections.EMPTY_SET);
+        return getCallingClass(matchLevel, Collections.emptySet());
     }
 
     /**
@@ -113,19 +118,10 @@ public class ReflectionUtils {
         int depth = 0;
         try {
             Class c;
-            // this super class stuff is for Java 1.4 support only
-            // it isn't needed on a 5.0 VM
-            Class sc;
             do {
                 do {
                     c = classContext[depth++];
-                    if (c != null) {
-                        sc = c.getSuperclass();
-                    } else {
-                        sc = null;
-                    }
-                } while (classShouldBeIgnored(c, extraIgnoredPackages)
-                        || superClassShouldBeIgnored(sc));
+                } while (classShouldBeIgnored(c, extraIgnoredPackages));
             } while (c != null && matchLevel-- > 0 && depth<classContext.length);
             return c;
         } catch (Throwable t) {
@@ -133,11 +129,19 @@ public class ReflectionUtils {
         }
     }
 
-    public static List<Method> getMethods(Class type, String name, Class<?>... parameterTypes) {
+    public static List<Method> getDeclaredMethods(Class<?> type, String name, Class<?>... parameterTypes) {
+        return doGetMethods(type, name, parameterTypes, Class::getDeclaredMethods);
+    }
+
+    public static List<Method> getMethods(Class<?> type, String name, Class<?>... parameterTypes) {
+        return doGetMethods(type, name, parameterTypes, Class::getMethods);
+    }
+
+    private static List<Method> doGetMethods(Class<?> type, String name, Class<?>[] parameterTypes, Function<? super Class<?>, ? extends Method[]> f) {
         List<Method> methodList = new LinkedList<>();
 
         out:
-        for (Method m : type.getMethods()) {
+        for (Method m : f.apply(type)) {
             if (!m.getName().equals(name)) {
                 continue;
             }
@@ -184,11 +188,7 @@ public class ReflectionUtils {
     }
 
     public static Optional<AccessibleObject> makeAccessibleInPrivilegedAction(final AccessibleObject ao) {
-        return AccessController.doPrivileged(new PrivilegedAction<Optional<AccessibleObject>>() {
-            public Optional<AccessibleObject> run() {
-                return makeAccessible(ao);
-            }
-        });
+        return AccessController.doPrivileged((PrivilegedAction<Optional<AccessibleObject>>) () -> makeAccessible(ao));
     }
 
     // to be run in PrivilegedAction!
@@ -215,10 +215,6 @@ public class ReflectionUtils {
             }
             return ret.toArray((AccessibleObject[]) Array.newInstance(aoa.getClass().getComponentType(), 0));
         }
-    }
-
-    private static boolean superClassShouldBeIgnored(Class sc) {
-        return ((sc != null) && (sc.getPackage() != null) && "org.codehaus.groovy.runtime.callsite".equals(sc.getPackage().getName()));
     }
 
     private static boolean classShouldBeIgnored(Class c, Collection<String> extraIgnoredPackages) {

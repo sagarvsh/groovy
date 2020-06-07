@@ -423,6 +423,33 @@ class FieldsAndPropertiesSTCTest extends StaticTypeCheckingTestCase {
         '''
     }
 
+    // GROOVY-9562
+    void testSuperPropertyAccessInAIC() {
+        assertScript '''
+            abstract class One {
+                int prop = 1
+            }
+
+            abstract class Two {
+                int prop = 2
+
+                abstract baz()
+            }
+
+            class Foo extends One {
+                Two bar() {
+                    new Two() {
+                        def baz() {
+                            prop
+                        }
+                    }
+                }
+            }
+
+            assert new Foo().bar().baz() == 2
+        '''
+    }
+
     // GROOVY-5737
     void testAccessGeneratedFieldFromClosure() {
         assertScript '''
@@ -542,29 +569,30 @@ new FooWorker().doSomething()'''
     }
 
     void testShouldFailWithIncompatibleGenericTypes() {
-        shouldFailWithMessages '''public class Foo {
+        shouldFailWithMessages '''\
+            public class Foo {
+                private List<String> names;
 
-    private List<String> names;
+                public List<String> getNames() {
+                    return names;
+                }
 
-    public List<String> getNames() {
-        return names;
-    }
+                public void setNames(List<String> names) {
+                    this.names = names;
+                }
+            }
 
-    public void setNames(List<String> names) {
-        this.names = names;
-    }
-}
+            class FooWorker {
+                public void doSomething() {
+                    new Foo().with {
+                        names = new ArrayList<Integer>()
+                    }
+                }
+            }
 
-class FooWorker {
-
-    public void doSomething() {
-        new Foo().with {
-            names = new ArrayList<Integer>()
-        }
-    }
-}
-
-new FooWorker().doSomething()''', 'Cannot assign value of type java.util.ArrayList <Integer> to variable of type java.util.List <String>'
+            new FooWorker().doSomething()
+        ''',
+        'Cannot assign value of type java.util.ArrayList <Integer> to variable of type java.util.List <String>'
     }
 
     void testAICAsStaticProperty() {
@@ -730,7 +758,7 @@ import org.codehaus.groovy.ast.stmt.AssertStatement
     void testImplicitPropertyOfDelegateShouldNotPreferField() {
         assertScript '''
             Calendar.instance.with {
-                Date d1 = time
+                Date d1 = time // Date getTime() vs. long time
             }
         '''
     }
@@ -820,4 +848,3 @@ import org.codehaus.groovy.ast.stmt.AssertStatement
     static class BaseClass2 extends BaseClass {
     }
 }
-

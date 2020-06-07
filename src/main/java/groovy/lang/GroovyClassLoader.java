@@ -26,6 +26,7 @@
 package groovy.lang;
 
 import groovy.util.CharsetToolkit;
+import org.codehaus.groovy.GroovyBugError;
 import org.codehaus.groovy.ast.ClassHelper;
 import org.codehaus.groovy.ast.ClassNode;
 import org.codehaus.groovy.ast.FieldNode;
@@ -109,18 +110,16 @@ public class GroovyClassLoader extends URLClassLoader {
 
     private GroovyResourceLoader resourceLoader = new GroovyResourceLoader() {
         public URL loadGroovySource(final String filename) throws MalformedURLException {
-            return AccessController.doPrivileged(new PrivilegedAction<URL>() {
-                public URL run() {
-                    for (String extension : config.getScriptExtensions()) {
-                        try {
-                            URL ret = getSourceFile(filename, extension);
-                            if (ret != null)
-                                return ret;
-                        } catch (Throwable t) { //
-                        }
+            return AccessController.doPrivileged((PrivilegedAction<URL>) () -> {
+                for (String extension : config.getScriptExtensions()) {
+                    try {
+                        URL ret = getSourceFile(filename, extension);
+                        if (ret != null)
+                            return ret;
+                    } catch (Throwable t) {
                     }
-                    return null;
                 }
+                return null;
             });
         }
     };
@@ -253,11 +252,7 @@ public class GroovyClassLoader extends URLClassLoader {
      * @return the main class defined in the given script
      */
     public Class parseClass(final String text, final String fileName) throws CompilationFailedException {
-        GroovyCodeSource gcs = AccessController.doPrivileged(new PrivilegedAction<GroovyCodeSource>() {
-            public GroovyCodeSource run() {
-                return new GroovyCodeSource(text, fileName, "/groovy/script");
-            }
-        });
+        GroovyCodeSource gcs = AccessController.doPrivileged((PrivilegedAction<GroovyCodeSource>) () -> new GroovyCodeSource(text, fileName, "/groovy/script"));
         gcs.setCachable(false);
         return parseClass(gcs);
     }
@@ -269,8 +264,11 @@ public class GroovyClassLoader extends URLClassLoader {
      * @return the main class defined in the given script
      */
     public Class parseClass(String text) throws CompilationFailedException {
-        return parseClass(text, "script" + System.currentTimeMillis() +
-                Math.abs((long) text.hashCode()) + ".groovy");
+        try {
+            return parseClass(text, "Script_" + EncodingGroovyMethods.md5(text) + ".groovy");
+        } catch (NoSuchAlgorithmException e) {
+            throw new GroovyBugError("Failed to generate md5", e); // should never happen
+        }
     }
 
     public synchronized String generateScriptName() {
@@ -279,38 +277,12 @@ public class GroovyClassLoader extends URLClassLoader {
     }
 
     public Class parseClass(final Reader reader, final String fileName) throws CompilationFailedException {
-        GroovyCodeSource gcs = AccessController.doPrivileged(new PrivilegedAction<GroovyCodeSource>() {
-            public GroovyCodeSource run() {
-                try {
-                    String scriptText = IOGroovyMethods.getText(reader);
-                    return new GroovyCodeSource(scriptText, fileName, "/groovy/script");
-                } catch (IOException e) {
-                    throw new RuntimeException("Impossible to read the content of the reader for file named: " + fileName, e);
-                }
-            }
-        });
-        return parseClass(gcs);
-    }
-
-    /**
-     * @deprecated Prefer using methods taking a Reader rather than an InputStream to avoid wrong encoding issues.
-     * Use {@link #parseClass(Reader, String) parseClass} instead
-     */
-    @Deprecated
-    public Class parseClass(final InputStream in, final String fileName) throws CompilationFailedException {
-        // For generic input streams, provide a catch-all codebase of GroovyScript
-        // Security for these classes can be administered via policy grants with
-        // a codebase of file:groovy.script
-        GroovyCodeSource gcs = AccessController.doPrivileged(new PrivilegedAction<GroovyCodeSource>() {
-            public GroovyCodeSource run() {
-                try {
-                    String scriptText = config.getSourceEncoding() != null ?
-                            IOGroovyMethods.getText(in, config.getSourceEncoding()) :
-                            IOGroovyMethods.getText(in);
-                    return new GroovyCodeSource(scriptText, fileName, "/groovy/script");
-                } catch (IOException e) {
-                    throw new RuntimeException("Impossible to read the content of the input stream for file named: " + fileName, e);
-                }
+        GroovyCodeSource gcs = AccessController.doPrivileged((PrivilegedAction<GroovyCodeSource>) () -> {
+            try {
+                String scriptText = IOGroovyMethods.getText(reader);
+                return new GroovyCodeSource(scriptText, fileName, "/groovy/script");
+            } catch (IOException e) {
+                throw new RuntimeException("Impossible to read the content of the reader for file named: " + fileName, e);
             }
         });
         return parseClass(gcs);
@@ -335,12 +307,7 @@ public class GroovyClassLoader extends URLClassLoader {
 
         return sourceCache.getAndPut(
                 cacheKey,
-                new EvictableCache.ValueProvider<String, Class>() {
-                    @Override
-                    public Class provide(String key) {
-                        return doParseClass(codeSource);
-                    }
-                },
+                key -> doParseClass(codeSource),
                 shouldCacheSource
         );
     }
@@ -583,12 +550,6 @@ public class GroovyClassLoader extends URLClassLoader {
         }
 
         @Override
-        @Deprecated
-        public Class parseClass(InputStream in, String fileName) throws CompilationFailedException {
-            return delegate.parseClass(in, fileName);
-        }
-
-        @Override
         public Class parseClass(GroovyCodeSource codeSource) throws CompilationFailedException {
             return delegate.parseClass(codeSource);
         }
@@ -645,8 +606,11 @@ public class GroovyClassLoader extends URLClassLoader {
 
         @Override
         public void close() throws IOException {
-            super.close();
-            delegate.close();
+            try {
+                super.close();
+            } finally {
+                delegate.close();
+            }
         }
 
         public long getTimeStamp() {
@@ -676,11 +640,7 @@ public class GroovyClassLoader extends URLClassLoader {
      * @return the ClassCollector
      */
     protected ClassCollector createCollector(CompilationUnit unit, SourceUnit su) {
-        InnerLoader loader = AccessController.doPrivileged(new PrivilegedAction<InnerLoader>() {
-            public InnerLoader run() {
-                return new InnerLoader(GroovyClassLoader.this);
-            }
-        });
+        InnerLoader loader = AccessController.doPrivileged((PrivilegedAction<InnerLoader>) () -> new InnerLoader(GroovyClassLoader.this));
         return new ClassCollector(loader, unit, su);
     }
 
@@ -717,7 +677,7 @@ public class GroovyClassLoader extends URLClassLoader {
                 SourceUnit msu = null;
                 if (mn != null) msu = mn.getContext();
                 ClassNode main = null;
-                if (mn != null) main = (ClassNode) mn.getClasses().get(0);
+                if (mn != null) main = mn.getClasses().get(0);
                 if (msu == su && main == classNode) generatedClass = theClass;
             }
 
@@ -828,8 +788,7 @@ public class GroovyClassLoader extends URLClassLoader {
         if (recompile != null && !recompile) return false;
         if (!GroovyObject.class.isAssignableFrom(cls)) return false;
         long timestamp = getTimeStamp(cls);
-        if (timestamp == Long.MAX_VALUE) return false;
-        return true;
+        return timestamp != Long.MAX_VALUE;
     }
 
     /**
@@ -1108,42 +1067,40 @@ public class GroovyClassLoader extends URLClassLoader {
      * @see #addURL(URL)
      */
     public void addClasspath(final String path) {
-        AccessController.doPrivileged(new PrivilegedAction<Void>() {
-            public Void run() {
+        AccessController.doPrivileged((PrivilegedAction<Void>) () -> {
 
-                URI newURI;
-                try {
-                    newURI = new URI(path);
-                    // check if we can create a URL from that URI
-                    newURI.toURL();
-                } catch (URISyntaxException | IllegalArgumentException | MalformedURLException e) {
-                    // the URI has a false format, so lets try it with files ...
-                    newURI=new File(path).toURI();
-                }
+            URI newURI;
+            try {
+                newURI = new URI(path);
+                // check if we can create a URL from that URI
+                newURI.toURL();
+            } catch (URISyntaxException | IllegalArgumentException | MalformedURLException e) {
+                // the URI has a false format, so lets try it with files ...
+                newURI=new File(path).toURI();
+            }
 
-                URL[] urls = getURLs();
-                for (URL url : urls) {
-                    // Do not use URL.equals.  It uses the network to resolve names and compares ip addresses!
-                    // That is a violation of RFC and just plain evil.
-                    // http://michaelscharf.blogspot.com/2006/11/javaneturlequals-and-hashcode-make.html
-                    // http://docs.oracle.com/javase/7/docs/api/java/net/URL.html#equals(java.lang.Object)
-                    // "Since hosts comparison requires name resolution, this operation is a blocking operation.
-                    // Note: The defined behavior for equals is known to be inconsistent with virtual hosting in HTTP."
-                    try {
-                        if (newURI.equals(url.toURI())) return null;
-                    } catch (URISyntaxException e) {
-                        // fail fast! if we got a malformed URI the Classloader has to tell it
-                        throw new RuntimeException( e );
-                    }
-                }
+            URL[] urls = getURLs();
+            for (URL url : urls) {
+                // Do not use URL.equals.  It uses the network to resolve names and compares ip addresses!
+                // That is a violation of RFC and just plain evil.
+                // http://michaelscharf.blogspot.com/2006/11/javaneturlequals-and-hashcode-make.html
+                // http://docs.oracle.com/javase/7/docs/api/java/net/URL.html#equals(java.lang.Object)
+                // "Since hosts comparison requires name resolution, this operation is a blocking operation.
+                // Note: The defined behavior for equals is known to be inconsistent with virtual hosting in HTTP."
                 try {
-                    addURL(newURI.toURL());
-                } catch (MalformedURLException e) {
-                    // fail fast! if we got a malformed URL the Classloader has to tell it
+                    if (newURI.equals(url.toURI())) return null;
+                } catch (URISyntaxException e) {
+                    // fail fast! if we got a malformed URI the Classloader has to tell it
                     throw new RuntimeException( e );
                 }
-                return null;
             }
+            try {
+                addURL(newURI.toURL());
+            } catch (MalformedURLException e) {
+                // fail fast! if we got a malformed URL the Classloader has to tell it
+                throw new RuntimeException( e );
+            }
+            return null;
         });
     }
 
@@ -1199,7 +1156,7 @@ public class GroovyClassLoader extends URLClassLoader {
         clearCache();
     }
 
-    private static class TimestampAdder extends CompilationUnit.PrimaryClassNodeOperation implements Opcodes {
+    private static class TimestampAdder implements CompilationUnit.IPrimaryClassNodeOperation, Opcodes {
         private static final TimestampAdder INSTANCE = new TimestampAdder();
 
         private TimestampAdder() {}
@@ -1218,7 +1175,7 @@ public class GroovyClassLoader extends URLClassLoader {
                 node.addField(timeTagField);
 
                 timeTagField = new FieldNode(
-                        Verifier.__TIMESTAMP__ + String.valueOf(System.currentTimeMillis()),
+                        Verifier.__TIMESTAMP__ + System.currentTimeMillis(),
                         ACC_PUBLIC | ACC_STATIC | ACC_SYNTHETIC,
                         ClassHelper.long_TYPE,
                         //"",

@@ -39,7 +39,6 @@ import org.codehaus.groovy.runtime.AbstractComparator;
 import org.codehaus.groovy.runtime.StringGroovyMethods;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -236,12 +235,8 @@ public class SortableASTTransformation extends AbstractASTTransformation {
             checkComparable(pNode);
         }
         if (includes != null) {
-            Comparator<PropertyNode> includeComparator = new Comparator<PropertyNode>() {
-                public int compare(PropertyNode o1, PropertyNode o2) {
-                    return Integer.compare(includes.indexOf(o1.getName()), includes.indexOf(o2.getName()));
-                }
-            };
-            Collections.sort(properties, includeComparator);
+            Comparator<PropertyNode> includeComparator = Comparator.comparingInt(o -> includes.indexOf(o.getName()));
+            properties.sort(includeComparator);
         }
         return properties;
     }

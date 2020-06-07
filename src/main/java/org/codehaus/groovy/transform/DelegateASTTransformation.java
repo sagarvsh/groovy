@@ -35,6 +35,7 @@ import org.codehaus.groovy.ast.PropertyNode;
 import org.codehaus.groovy.ast.expr.ArgumentListExpression;
 import org.codehaus.groovy.ast.expr.Expression;
 import org.codehaus.groovy.ast.expr.MethodCallExpression;
+import org.codehaus.groovy.ast.tools.BeanUtils;
 import org.codehaus.groovy.ast.tools.GenericsUtils;
 import org.codehaus.groovy.classgen.Verifier;
 import org.codehaus.groovy.control.CompilePhase;
@@ -42,6 +43,7 @@ import org.codehaus.groovy.control.SourceUnit;
 
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -151,6 +153,8 @@ public class DelegateASTTransformation extends AbstractASTTransformation {
             delegate.includeTypes = getMemberClassList(node, MEMBER_INCLUDE_TYPES);
             checkIncludeExcludeUndefinedAware(node, delegate.excludes, delegate.includes,
                                               delegate.excludeTypes, delegate.includeTypes, MY_TYPE_NAME);
+            if (!checkPropertyOrMethodList(delegate.type, delegate.includes, "includes", node, MY_TYPE_NAME)) return;
+            if (!checkPropertyOrMethodList(delegate.type, delegate.excludes, "excludes", node, MY_TYPE_NAME)) return;
 
             final List<MethodNode> ownerMethods = getAllMethods(delegate.owner);
             for (MethodNode mn : delegateMethods) {
@@ -194,6 +198,39 @@ public class DelegateASTTransformation extends AbstractASTTransformation {
                 }
             }
         }
+    }
+
+    private boolean checkPropertyOrMethodList(ClassNode cNode, List<String> propertyNameList, String listName, AnnotationNode anno, String typeName) {
+        if (propertyNameList == null || propertyNameList.isEmpty()) {
+            return true;
+        }
+        final Set<String> pNames = new HashSet<>();
+        final Set<String> mNames = new HashSet<>();
+        for (PropertyNode pNode : BeanUtils.getAllProperties(cNode, false, false, false)) {
+            String name = pNode.getField().getName();
+            pNames.add(name);
+            // add getter/setters since Groovy compiler hasn't added property accessors yet
+            String capitalized = Verifier.capitalize(name);
+            if ((pNode.getModifiers() & ACC_FINAL) == 0) {
+                mNames.add("set" + capitalized);
+            }
+            mNames.add("get" + capitalized);
+            boolean isPrimBool = pNode.getOriginType().equals(ClassHelper.boolean_TYPE);
+            if (isPrimBool) {
+                mNames.add("is" + capitalized);
+            }
+        }
+        for (MethodNode mNode : cNode.getAllDeclaredMethods()) {
+            mNames.add(mNode.getName());
+        }
+        boolean result = true;
+        for (String name : propertyNameList) {
+            if (!pNames.contains(name) && !mNames.contains(name)) {
+                addError("Error during " + typeName + " processing: '" + listName + "' property or method '" + name + "' does not exist.", anno);
+                result = false;
+            }
+        }
+        return result;
     }
 
     private static void addSetterIfNeeded(DelegateDescription delegate, PropertyNode prop, String name, boolean allNames) {
@@ -337,7 +374,7 @@ public class DelegateASTTransformation extends AbstractASTTransformation {
             newMethod.setGenericsTypes(candidate.getGenericsTypes());
 
             if (memberHasValue(delegate.annotation, MEMBER_METHOD_ANNOTATIONS, true)) {
-                newMethod.addAnnotations(copyAnnotatedNodeAnnotations(candidate, MY_TYPE_NAME));
+                newMethod.addAnnotations(copyAnnotatedNodeAnnotations(candidate, MY_TYPE_NAME, false));
             }
         }
     }

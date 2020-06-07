@@ -18,7 +18,6 @@
  */
 package org.codehaus.groovy.control.customizers;
 
-import org.codehaus.groovy.ast.ClassHelper;
 import org.codehaus.groovy.ast.ClassNode;
 import org.codehaus.groovy.ast.CodeVisitorSupport;
 import org.codehaus.groovy.ast.GroovyCodeVisitor;
@@ -176,14 +175,14 @@ import java.util.Map;
  *             config.addCompilationCustomizers(imports, secure)
  *             GroovyClassLoader loader = new GroovyClassLoader(this.class.classLoader, config)
  *  </pre>
- *  
+ *
  * @since 1.8.0
  */
 public class SecureASTCustomizer extends CompilationCustomizer {
 
     private boolean isPackageAllowed = true;
-    private boolean isMethodDefinitionAllowed = true;
     private boolean isClosuresAllowed = true;
+    private boolean isMethodDefinitionAllowed = true;
 
     // imports
     private List<String> importsWhitelist;
@@ -201,7 +200,6 @@ public class SecureASTCustomizer extends CompilationCustomizer {
     private List<String> staticStarImportsWhitelist;
     private List<String> staticStarImportsBlacklist;
 
-
     // indirect import checks
     // if set to true, then security rules on imports will also be applied on classnodes.
     // Direct instantiation of classes without imports will therefore also fail if this option is enabled
@@ -210,12 +208,12 @@ public class SecureASTCustomizer extends CompilationCustomizer {
     // statements
     private List<Class<? extends Statement>> statementsWhitelist;
     private List<Class<? extends Statement>> statementsBlacklist;
-    private final List<StatementChecker> statementCheckers = new LinkedList<StatementChecker>();
+    private final List<StatementChecker> statementCheckers = new LinkedList<>();
 
     // expressions
     private List<Class<? extends Expression>> expressionsWhitelist;
     private List<Class<? extends Expression>> expressionsBlacklist;
-    private final List<ExpressionChecker> expressionCheckers = new LinkedList<ExpressionChecker>();
+    private final List<ExpressionChecker> expressionCheckers = new LinkedList<>();
 
     // tokens from Types
     private List<Integer> tokensWhitelist;
@@ -303,14 +301,13 @@ public class SecureASTCustomizer extends CompilationCustomizer {
         if (this.importsWhitelist == null) importsWhitelist = Collections.emptyList();
     }
 
-    /**
-     * Ensures that every star import ends with .* as this is the expected syntax in import checks.
-     */
     private static List<String> normalizeStarImports(List<String> starImports) {
-        List<String> result = new ArrayList<String>(starImports.size());
+        List<String> result = new ArrayList<>(starImports.size());
         for (String starImport : starImports) {
             if (starImport.endsWith(".*")) {
                 result.add(starImport);
+            } else if (starImport.endsWith("**")) {
+                result.add(starImport.replaceFirst("\\*+$", ""));
             } else if (starImport.endsWith(".")) {
                 result.add(starImport + "*");
             } else {
@@ -493,7 +490,7 @@ public class SecureASTCustomizer extends CompilationCustomizer {
      * @param constantTypesWhiteList a list of classes.
      */
     public void setConstantTypesClassesWhiteList(final List<Class> constantTypesWhiteList) {
-        List<String> values = new LinkedList<String>();
+        List<String> values = new LinkedList<>();
         for (Class aClass : constantTypesWhiteList) {
             values.add(aClass.getName());
         }
@@ -506,7 +503,7 @@ public class SecureASTCustomizer extends CompilationCustomizer {
      * @param constantTypesBlackList a list of classes.
      */
     public void setConstantTypesClassesBlackList(final List<Class> constantTypesBlackList) {
-        List<String> values = new LinkedList<String>();
+        List<String> values = new LinkedList<>();
         for (Class aClass : constantTypesBlackList) {
             values.add(aClass.getName());
         }
@@ -519,8 +516,8 @@ public class SecureASTCustomizer extends CompilationCustomizer {
 
     /**
      * Sets the list of classes which deny method calls.
-     * 
-     * Please note that since Groovy is a dynamic language, and 
+     *
+     * Please note that since Groovy is a dynamic language, and
      * this class performs a static type check, it will be reletively
      * simple to bypass any blacklist unless the receivers blacklist contains, at
      * a minimum, Object, Script, GroovyShell, and Eval. Additionally,
@@ -543,7 +540,7 @@ public class SecureASTCustomizer extends CompilationCustomizer {
      * @param receiversBlacklist a list of classes.
      */
     public void setReceiversClassesBlackList(final List<Class> receiversBlacklist) {
-        List<String> values = new LinkedList<String>();
+        List<String> values = new LinkedList<>();
         for (Class aClass : receiversBlacklist) {
             values.add(aClass.getName());
         }
@@ -572,7 +569,7 @@ public class SecureASTCustomizer extends CompilationCustomizer {
      * @param receiversWhitelist a list of classes.
      */
     public void setReceiversClassesWhiteList(final List<Class> receiversWhitelist) {
-        List<String> values = new LinkedList<String>();
+        List<String> values = new LinkedList<>();
         for (Class aClass : receiversWhitelist) {
             values.add(aClass.getName());
         }
@@ -581,7 +578,7 @@ public class SecureASTCustomizer extends CompilationCustomizer {
 
     @Override
     public void call(final SourceUnit source, final GeneratorContext context, final ClassNode classNode) throws CompilationFailedException {
-        final ModuleNode ast = source.getAST();
+        ModuleNode ast = source.getAST();
         if (!isPackageAllowed && ast.getPackage() != null) {
             throw new SecurityException("Package definitions are not allowed");
         }
@@ -590,12 +587,10 @@ public class SecureASTCustomizer extends CompilationCustomizer {
         // verify imports
         if (importsBlacklist != null || importsWhitelist != null || starImportsBlacklist != null || starImportsWhitelist != null) {
             for (ImportNode importNode : ast.getImports()) {
-                final String className = importNode.getClassName();
-                assertImportIsAllowed(className);
+                assertImportIsAllowed(importNode.getClassName());
             }
             for (ImportNode importNode : ast.getStarImports()) {
-                final String className = importNode.getPackageName();
-                assertStarImportIsAllowed(className + "*");
+                assertStarImportIsAllowed(importNode.getPackageName() + "*");
             }
         }
 
@@ -611,7 +606,7 @@ public class SecureASTCustomizer extends CompilationCustomizer {
             }
         }
 
-        final GroovyCodeVisitor visitor = createGroovyCodeVisitor();
+        GroovyCodeVisitor visitor = createGroovyCodeVisitor();
         ast.getStatementBlock().visit(visitor);
         for (ClassNode clNode : ast.getClasses()) {
             if (clNode!=classNode) {
@@ -627,7 +622,9 @@ public class SecureASTCustomizer extends CompilationCustomizer {
         List<MethodNode> methods = filterMethods(classNode);
         if (isMethodDefinitionAllowed) {
             for (MethodNode method : methods) {
-                if (method.getDeclaringClass()==classNode && method.getCode() != null) method.getCode().visit(visitor);
+                if (method.getDeclaringClass() == classNode && method.getCode() != null) {
+                    method.getCode().visit(visitor);
+                }
             }
         }
     }
@@ -643,7 +640,7 @@ public class SecureASTCustomizer extends CompilationCustomizer {
     }
 
     protected static List<MethodNode> filterMethods(ClassNode owner) {
-        List<MethodNode> result = new LinkedList<MethodNode>();
+        List<MethodNode> result = new LinkedList<>();
         List<MethodNode> methods = owner.getMethods();
         for (MethodNode method : methods) {
             if (method.getDeclaringClass() == owner && !method.isSynthetic()) {
@@ -655,38 +652,45 @@ public class SecureASTCustomizer extends CompilationCustomizer {
     }
 
     protected void assertStarImportIsAllowed(final String packageName) {
-        if (starImportsWhitelist != null && !starImportsWhitelist.contains(packageName)) {
+        if (starImportsWhitelist != null && !(starImportsWhitelist.contains(packageName)
+                || starImportsWhitelist.stream().filter(it -> it.endsWith(".")).anyMatch(packageName::startsWith))) {
             throw new SecurityException("Importing [" + packageName + "] is not allowed");
         }
-        if (starImportsBlacklist != null && starImportsBlacklist.contains(packageName)) {
+        if (starImportsBlacklist != null && (starImportsBlacklist.contains(packageName)
+                || starImportsBlacklist.stream().filter(it -> it.endsWith(".")).anyMatch(packageName::startsWith))) {
             throw new SecurityException("Importing [" + packageName + "] is not allowed");
         }
     }
 
     protected void assertImportIsAllowed(final String className) {
-        if (importsWhitelist != null && !importsWhitelist.contains(className)) {
+        if (importsWhitelist != null || starImportsWhitelist != null) {
+            if (importsWhitelist != null && importsWhitelist.contains(className)) {
+                return;
+            }
             if (starImportsWhitelist != null) {
-                // we should now check if the import is in the star imports
-                ClassNode node = ClassHelper.make(className);
-                final String packageName = node.getPackageName();
-                if (!starImportsWhitelist.contains(packageName + ".*")) {
+                String packageName = getWildCardImport(className);
+                if (starImportsWhitelist.contains(packageName)
+                        || starImportsWhitelist.stream().filter(it -> it.endsWith(".")).anyMatch(packageName::startsWith)) {
+                    return;
+                }
+            }
+            throw new SecurityException("Importing [" + className + "] is not allowed");
+        } else {
+            if (importsBlacklist != null && importsBlacklist.contains(className)) {
+                throw new SecurityException("Importing [" + className + "] is not allowed");
+            }
+            if (starImportsBlacklist != null) {
+                String packageName = getWildCardImport(className);
+                if (starImportsBlacklist.contains(packageName) ||
+                        starImportsBlacklist.stream().filter(it -> it.endsWith(".")).anyMatch(packageName::startsWith)) {
                     throw new SecurityException("Importing [" + className + "] is not allowed");
                 }
-            } else {
-                throw new SecurityException("Importing [" + className + "] is not allowed");
             }
         }
-        if (importsBlacklist != null && importsBlacklist.contains(className)) {
-            throw new SecurityException("Importing [" + className + "] is not allowed");
-        }
-        // check that there's no star import blacklist
-        if (starImportsBlacklist != null) {
-            ClassNode node = ClassHelper.make(className);
-            final String packageName = node.getPackageName();
-            if (starImportsBlacklist.contains(packageName + ".*")) {
-                throw new SecurityException("Importing [" + className + "] is not allowed");
-            }
-        }
+    }
+
+    private String getWildCardImport(String className) {
+        return className.substring(0, className.lastIndexOf('.') + 1) + "*";
     }
 
     protected void assertStaticImportIsAllowed(final String member, final String className) {
@@ -694,7 +698,9 @@ public class SecureASTCustomizer extends CompilationCustomizer {
         if (staticImportsWhitelist != null && !staticImportsWhitelist.contains(fqn)) {
             if (staticStarImportsWhitelist != null) {
                 // we should now check if the import is in the star imports
-                if (!staticStarImportsWhitelist.contains(className + ".*")) {
+                String packageName = getWildCardImport(className);
+                if (!staticStarImportsWhitelist.contains(className + ".*")
+                        && staticStarImportsWhitelist.stream().filter(it -> it.endsWith(".")).noneMatch(packageName::startsWith)) {
                     throw new SecurityException("Importing [" + fqn + "] is not allowed");
                 }
             } else {
@@ -706,7 +712,9 @@ public class SecureASTCustomizer extends CompilationCustomizer {
         }
         // check that there's no star import blacklist
         if (staticStarImportsBlacklist != null) {
-            if (staticStarImportsBlacklist.contains(className + ".*")) {
+            String packageName = getWildCardImport(className);
+            if (staticStarImportsBlacklist.contains(className + ".*")
+                    || staticStarImportsBlacklist.stream().filter(it -> it.endsWith(".")).anyMatch(packageName::startsWith)) {
                 throw new SecurityException("Importing [" + fqn + "] is not allowed");
             }
         }
@@ -803,6 +811,7 @@ public class SecureASTCustomizer extends CompilationCustomizer {
             }
         }
 
+        @Override
         public void visitBlockStatement(final BlockStatement block) {
             assertStatementAuthorized(block);
             for (Statement statement : block.getStatements()) {
@@ -810,76 +819,70 @@ public class SecureASTCustomizer extends CompilationCustomizer {
             }
         }
 
-
+        @Override
         public void visitForLoop(final ForStatement forLoop) {
             assertStatementAuthorized(forLoop);
             forLoop.getCollectionExpression().visit(this);
             forLoop.getLoopBlock().visit(this);
         }
 
+        @Override
         public void visitWhileLoop(final WhileStatement loop) {
             assertStatementAuthorized(loop);
             loop.getBooleanExpression().visit(this);
             loop.getLoopBlock().visit(this);
         }
 
+        @Override
         public void visitDoWhileLoop(final DoWhileStatement loop) {
             assertStatementAuthorized(loop);
             loop.getBooleanExpression().visit(this);
             loop.getLoopBlock().visit(this);
         }
 
+        @Override
         public void visitIfElse(final IfStatement ifElse) {
             assertStatementAuthorized(ifElse);
             ifElse.getBooleanExpression().visit(this);
             ifElse.getIfBlock().visit(this);
-
-            Statement elseBlock = ifElse.getElseBlock();
-            if (elseBlock instanceof EmptyStatement) {
-                // dispatching to EmptyStatement will not call back visitor,
-                // must call our visitEmptyStatement explicitly
-                visitEmptyStatement((EmptyStatement) elseBlock);
-            } else {
-                elseBlock.visit(this);
-            }
+            ifElse.getElseBlock().visit(this);
         }
 
+        @Override
         public void visitExpressionStatement(final ExpressionStatement statement) {
             assertStatementAuthorized(statement);
             statement.getExpression().visit(this);
         }
 
+        @Override
         public void visitReturnStatement(final ReturnStatement statement) {
             assertStatementAuthorized(statement);
             statement.getExpression().visit(this);
         }
 
+        @Override
         public void visitAssertStatement(final AssertStatement statement) {
             assertStatementAuthorized(statement);
             statement.getBooleanExpression().visit(this);
             statement.getMessageExpression().visit(this);
         }
 
+        @Override
         public void visitTryCatchFinally(final TryCatchStatement statement) {
             assertStatementAuthorized(statement);
             statement.getTryStatement().visit(this);
             for (CatchStatement catchStatement : statement.getCatchStatements()) {
                 catchStatement.visit(this);
             }
-            Statement finallyStatement = statement.getFinallyStatement();
-            if (finallyStatement instanceof EmptyStatement) {
-                // dispatching to EmptyStatement will not call back visitor,
-                // must call our visitEmptyStatement explicitly
-                visitEmptyStatement((EmptyStatement) finallyStatement);
-            } else {
-                finallyStatement.visit(this);
-            }
+            statement.getFinallyStatement().visit(this);
         }
 
-        protected void visitEmptyStatement(EmptyStatement statement) {
+        @Override
+        public void visitEmptyStatement(EmptyStatement statement) {
             // noop
         }
 
+        @Override
         public void visitSwitch(final SwitchStatement statement) {
             assertStatementAuthorized(statement);
             statement.getExpression().visit(this);
@@ -889,36 +892,43 @@ public class SecureASTCustomizer extends CompilationCustomizer {
             statement.getDefaultStatement().visit(this);
         }
 
+        @Override
         public void visitCaseStatement(final CaseStatement statement) {
             assertStatementAuthorized(statement);
             statement.getExpression().visit(this);
             statement.getCode().visit(this);
         }
 
+        @Override
         public void visitBreakStatement(final BreakStatement statement) {
             assertStatementAuthorized(statement);
         }
 
+        @Override
         public void visitContinueStatement(final ContinueStatement statement) {
             assertStatementAuthorized(statement);
         }
 
+        @Override
         public void visitThrowStatement(final ThrowStatement statement) {
             assertStatementAuthorized(statement);
             statement.getExpression().visit(this);
         }
 
+        @Override
         public void visitSynchronizedStatement(final SynchronizedStatement statement) {
             assertStatementAuthorized(statement);
             statement.getExpression().visit(this);
             statement.getCode().visit(this);
         }
 
+        @Override
         public void visitCatchStatement(final CatchStatement statement) {
             assertStatementAuthorized(statement);
             statement.getCode().visit(this);
         }
 
+        @Override
         public void visitMethodCallExpression(final MethodCallExpression call) {
             assertExpressionAuthorized(call);
             Expression receiver = call.getObjectExpression();
@@ -934,6 +944,7 @@ public class SecureASTCustomizer extends CompilationCustomizer {
             call.getArguments().visit(this);
         }
 
+        @Override
         public void visitStaticMethodCallExpression(final StaticMethodCallExpression call) {
             assertExpressionAuthorized(call);
             final String typeName = call.getOwnerType().getName();
@@ -945,11 +956,13 @@ public class SecureASTCustomizer extends CompilationCustomizer {
             call.getArguments().visit(this);
         }
 
+        @Override
         public void visitConstructorCallExpression(final ConstructorCallExpression call) {
             assertExpressionAuthorized(call);
             call.getArguments().visit(this);
         }
 
+        @Override
         public void visitTernaryExpression(final TernaryExpression expression) {
             assertExpressionAuthorized(expression);
             expression.getBooleanExpression().visit(this);
@@ -957,11 +970,13 @@ public class SecureASTCustomizer extends CompilationCustomizer {
             expression.getFalseExpression().visit(this);
         }
 
+        @Override
         public void visitShortTernaryExpression(final ElvisOperatorExpression expression) {
             assertExpressionAuthorized(expression);
             visitTernaryExpression(expression);
         }
 
+        @Override
         public void visitBinaryExpression(final BinaryExpression expression) {
             assertExpressionAuthorized(expression);
             assertTokenAuthorized(expression.getOperation());
@@ -969,23 +984,27 @@ public class SecureASTCustomizer extends CompilationCustomizer {
             expression.getRightExpression().visit(this);
         }
 
+        @Override
         public void visitPrefixExpression(final PrefixExpression expression) {
             assertExpressionAuthorized(expression);
             assertTokenAuthorized(expression.getOperation());
             expression.getExpression().visit(this);
         }
 
+        @Override
         public void visitPostfixExpression(final PostfixExpression expression) {
             assertExpressionAuthorized(expression);
             assertTokenAuthorized(expression.getOperation());
             expression.getExpression().visit(this);
         }
 
+        @Override
         public void visitBooleanExpression(final BooleanExpression expression) {
             assertExpressionAuthorized(expression);
             expression.getExpression().visit(this);
         }
 
+        @Override
         public void visitClosureExpression(final ClosureExpression expression) {
             assertExpressionAuthorized(expression);
             if (!isClosuresAllowed) throw new SecurityException("Closures are not allowed");
@@ -997,33 +1016,39 @@ public class SecureASTCustomizer extends CompilationCustomizer {
             visitClosureExpression(expression);
         }
 
+        @Override
         public void visitTupleExpression(final TupleExpression expression) {
             assertExpressionAuthorized(expression);
             visitListOfExpressions(expression.getExpressions());
         }
 
+        @Override
         public void visitMapExpression(final MapExpression expression) {
             assertExpressionAuthorized(expression);
             visitListOfExpressions(expression.getMapEntryExpressions());
         }
 
+        @Override
         public void visitMapEntryExpression(final MapEntryExpression expression) {
             assertExpressionAuthorized(expression);
             expression.getKeyExpression().visit(this);
             expression.getValueExpression().visit(this);
         }
 
+        @Override
         public void visitListExpression(final ListExpression expression) {
             assertExpressionAuthorized(expression);
             visitListOfExpressions(expression.getExpressions());
         }
 
+        @Override
         public void visitRangeExpression(final RangeExpression expression) {
             assertExpressionAuthorized(expression);
             expression.getFrom().visit(this);
             expression.getTo().visit(this);
         }
 
+        @Override
         public void visitPropertyExpression(final PropertyExpression expression) {
             assertExpressionAuthorized(expression);
             Expression receiver = expression.getObjectExpression();
@@ -1048,6 +1073,7 @@ public class SecureASTCustomizer extends CompilationCustomizer {
             }
         }
 
+        @Override
         public void visitAttributeExpression(final AttributeExpression expression) {
             assertExpressionAuthorized(expression);
             Expression receiver = expression.getObjectExpression();
@@ -1062,10 +1088,12 @@ public class SecureASTCustomizer extends CompilationCustomizer {
             checkConstantTypeIfNotMethodNameOrProperty(property);
         }
 
+        @Override
         public void visitFieldExpression(final FieldExpression expression) {
             assertExpressionAuthorized(expression);
         }
 
+        @Override
         public void visitMethodPointerExpression(final MethodPointerExpression expression) {
             assertExpressionAuthorized(expression);
             expression.getExpression().visit(this);
@@ -1077,6 +1105,7 @@ public class SecureASTCustomizer extends CompilationCustomizer {
             visitMethodPointerExpression(expression);
         }
 
+        @Override
         public void visitConstantExpression(final ConstantExpression expression) {
             assertExpressionAuthorized(expression);
             final String type = expression.getType().getName();
@@ -1088,10 +1117,12 @@ public class SecureASTCustomizer extends CompilationCustomizer {
             }
         }
 
+        @Override
         public void visitClassExpression(final ClassExpression expression) {
             assertExpressionAuthorized(expression);
         }
 
+        @Override
         public void visitVariableExpression(final VariableExpression expression) {
             assertExpressionAuthorized(expression);
             final String type = expression.getType().getName();
@@ -1103,69 +1134,82 @@ public class SecureASTCustomizer extends CompilationCustomizer {
             }
         }
 
+        @Override
         public void visitDeclarationExpression(final DeclarationExpression expression) {
             assertExpressionAuthorized(expression);
             visitBinaryExpression(expression);
         }
 
+        @Override
         public void visitGStringExpression(final GStringExpression expression) {
             assertExpressionAuthorized(expression);
             visitListOfExpressions(expression.getStrings());
             visitListOfExpressions(expression.getValues());
         }
 
+        @Override
         public void visitArrayExpression(final ArrayExpression expression) {
             assertExpressionAuthorized(expression);
             visitListOfExpressions(expression.getExpressions());
             visitListOfExpressions(expression.getSizeExpression());
         }
 
+        @Override
         public void visitSpreadExpression(final SpreadExpression expression) {
             assertExpressionAuthorized(expression);
             expression.getExpression().visit(this);
         }
 
+        @Override
         public void visitSpreadMapExpression(final SpreadMapExpression expression) {
             assertExpressionAuthorized(expression);
             expression.getExpression().visit(this);
         }
 
+        @Override
         public void visitNotExpression(final NotExpression expression) {
             assertExpressionAuthorized(expression);
             expression.getExpression().visit(this);
         }
 
+        @Override
         public void visitUnaryMinusExpression(final UnaryMinusExpression expression) {
             assertExpressionAuthorized(expression);
             expression.getExpression().visit(this);
         }
 
+        @Override
         public void visitUnaryPlusExpression(final UnaryPlusExpression expression) {
             assertExpressionAuthorized(expression);
             expression.getExpression().visit(this);
         }
 
+        @Override
         public void visitBitwiseNegationExpression(final BitwiseNegationExpression expression) {
             assertExpressionAuthorized(expression);
             expression.getExpression().visit(this);
         }
 
+        @Override
         public void visitCastExpression(final CastExpression expression) {
             assertExpressionAuthorized(expression);
             expression.getExpression().visit(this);
         }
 
+        @Override
         public void visitArgumentlistExpression(final ArgumentListExpression expression) {
             assertExpressionAuthorized(expression);
             visitTupleExpression(expression);
         }
 
+        @Override
         public void visitClosureListExpression(final ClosureListExpression closureListExpression) {
             assertExpressionAuthorized(closureListExpression);
             if (!isClosuresAllowed) throw new SecurityException("Closures are not allowed");
             visitListOfExpressions(closureListExpression.getExpressions());
         }
 
+        @Override
         public void visitBytecodeExpression(final BytecodeExpression expression) {
             assertExpressionAuthorized(expression);
         }
@@ -1175,6 +1219,7 @@ public class SecureASTCustomizer extends CompilationCustomizer {
      * This interface allows the user to plugin custom expression checkers if expression blacklist or whitelist are not
      * sufficient
      */
+    @FunctionalInterface
     public interface ExpressionChecker {
         boolean isAuthorized(Expression expression);
     }
@@ -1183,8 +1228,8 @@ public class SecureASTCustomizer extends CompilationCustomizer {
      * This interface allows the user to plugin custom statement checkers if statement blacklist or whitelist are not
      * sufficient
      */
+    @FunctionalInterface
     public interface StatementChecker {
         boolean isAuthorized(Statement expression);
     }
-
 }

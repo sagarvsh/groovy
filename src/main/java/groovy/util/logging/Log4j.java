@@ -24,12 +24,10 @@ import org.codehaus.groovy.ast.ClassNode;
 import org.codehaus.groovy.ast.FieldNode;
 import org.codehaus.groovy.ast.expr.ArgumentListExpression;
 import org.codehaus.groovy.ast.expr.AttributeExpression;
-import org.codehaus.groovy.ast.expr.BooleanExpression;
 import org.codehaus.groovy.ast.expr.ClassExpression;
 import org.codehaus.groovy.ast.expr.ConstantExpression;
 import org.codehaus.groovy.ast.expr.Expression;
 import org.codehaus.groovy.ast.expr.MethodCallExpression;
-import org.codehaus.groovy.ast.expr.TernaryExpression;
 import org.codehaus.groovy.transform.GroovyASTTransformationClass;
 import org.codehaus.groovy.transform.LogASTTransformation;
 
@@ -40,6 +38,7 @@ import java.lang.annotation.Target;
 import java.util.Locale;
 
 import static org.codehaus.groovy.ast.tools.GeneralUtils.nullX;
+import static org.codehaus.groovy.ast.tools.GeneralUtils.ternaryX;
 
 /**
  * This local transform adds a logging ability to your program using
@@ -77,7 +76,7 @@ public @interface Log4j {
 
     Class<? extends LogASTTransformation.LoggingStrategy> loggingStrategy() default Log4jLoggingStrategy.class;
 
-    public static class Log4jLoggingStrategy extends LogASTTransformation.AbstractLoggingStrategyV2 {
+    class Log4jLoggingStrategy extends LogASTTransformation.AbstractLoggingStrategyV2 {
         private static final String LOGGER_NAME = "org.apache.log4j.Logger";
         private static final String PRIORITY_NAME = "org.apache.log4j.Priority";
 
@@ -120,10 +119,7 @@ public @interface Log4j {
             }
             condition.setImplicitThis(false);
 
-            return new TernaryExpression(
-                    new BooleanExpression(condition),
-                    originalExpression,
-                    nullX());
+            return ternaryX(condition, originalExpression, nullX());
         }
     }
 }

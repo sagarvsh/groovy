@@ -20,6 +20,7 @@ package org.codehaus.groovy.classgen.asm.sc;
 
 import groovy.lang.Tuple;
 import groovy.lang.Tuple2;
+import groovy.transform.CompileStatic;
 import groovy.transform.Generated;
 import org.codehaus.groovy.ast.ASTNode;
 import org.codehaus.groovy.ast.AnnotationNode;
@@ -39,10 +40,8 @@ import org.codehaus.groovy.classgen.asm.BytecodeHelper;
 import org.codehaus.groovy.classgen.asm.MethodReferenceExpressionWriter;
 import org.codehaus.groovy.classgen.asm.WriterController;
 import org.codehaus.groovy.runtime.ArrayTypeUtils;
-import org.codehaus.groovy.runtime.metaclass.MetaClassRegistryImpl;
 import org.codehaus.groovy.syntax.RuntimeParserException;
 import org.codehaus.groovy.transform.stc.ExtensionMethodNode;
-import org.codehaus.groovy.transform.stc.StaticTypeCheckingSupport;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
@@ -58,6 +57,7 @@ import static org.codehaus.groovy.ast.tools.GeneralUtils.callX;
 import static org.codehaus.groovy.ast.tools.GeneralUtils.ctorX;
 import static org.codehaus.groovy.ast.tools.GeneralUtils.returnS;
 import static org.codehaus.groovy.transform.stc.StaticTypeCheckingSupport.filterMethodsByVisibility;
+import static org.codehaus.groovy.transform.stc.StaticTypeCheckingSupport.findDGMMethodsForClassNode;
 import static org.codehaus.groovy.transform.stc.StaticTypesMarker.CLOSURE_ARGUMENTS;
 
 /**
@@ -67,6 +67,8 @@ import static org.codehaus.groovy.transform.stc.StaticTypesMarker.CLOSURE_ARGUME
  */
 public class StaticTypesMethodReferenceExpressionWriter extends MethodReferenceExpressionWriter implements AbstractFunctionalInterfaceWriter {
     private static final String METHODREF_EXPR_INSTANCE = "__METHODREF_EXPR_INSTANCE";
+    private static final ClassNode GENERATED_TYPE = ClassHelper.make(Generated.class);
+    private static final ClassNode COMPILE_STATIC_TYPE = ClassHelper.make(CompileStatic.class);
 
     public StaticTypesMethodReferenceExpressionWriter(WriterController controller) {
         super(controller);
@@ -153,12 +155,12 @@ public class StaticTypesMethodReferenceExpressionWriter extends MethodReferenceE
         mv.visitInvokeDynamicInsn(
                 abstractMethodNode.getName(),
                 createAbstractMethodDesc(functionalInterfaceType, typeOrTargetRef),
-                createBootstrapMethod(isInterface),
+                createBootstrapMethod(isInterface, false),
                 createBootstrapMethodArguments(
                         abstractMethodDesc,
                         methodRefMethod.isStatic() || isConstructorReference ? Opcodes.H_INVOKESTATIC : Opcodes.H_INVOKEVIRTUAL,
                         isConstructorReference ? controller.getClassNode() : typeOrTargetRefType,
-                        methodRefMethod)
+                        methodRefMethod, false)
         );
 
         if (isClassExpr) {
@@ -210,8 +212,8 @@ public class StaticTypesMethodReferenceExpressionWriter extends MethodReferenceE
                 )
         );
 
-        syntheticMethodNode.addAnnotation(new AnnotationNode(ClassHelper.make(Generated.class)));
-        syntheticMethodNode.addAnnotation(new AnnotationNode(ClassHelper.make(groovy.transform.CompileStatic.class)));
+        syntheticMethodNode.addAnnotation(new AnnotationNode(GENERATED_TYPE));
+        syntheticMethodNode.addAnnotation(new AnnotationNode(COMPILE_STATIC_TYPE));
 
         return syntheticMethodNode;
     }
@@ -240,8 +242,8 @@ public class StaticTypesMethodReferenceExpressionWriter extends MethodReferenceE
                 )
         );
 
-        syntheticMethodNode.addAnnotation(new AnnotationNode(ClassHelper.make(Generated.class)));
-        syntheticMethodNode.addAnnotation(new AnnotationNode(ClassHelper.make(groovy.transform.CompileStatic.class)));
+        syntheticMethodNode.addAnnotation(new AnnotationNode(GENERATED_TYPE));
+        syntheticMethodNode.addAnnotation(new AnnotationNode(COMPILE_STATIC_TYPE));
 
         return syntheticMethodNode;
     }
@@ -299,7 +301,7 @@ public class StaticTypesMethodReferenceExpressionWriter extends MethodReferenceE
     private MethodNode findMethodRefMethod(String methodRefName, Parameter[] abstractMethodParameters, Expression typeOrTargetRef) {
         ClassNode typeOrTargetRefType = typeOrTargetRef.getType();
         List<MethodNode> methodNodeList = typeOrTargetRefType.getMethods(methodRefName);
-        Set<MethodNode> dgmMethodNodeSet = StaticTypeCheckingSupport.findDGMMethodsForClassNode(MetaClassRegistryImpl.class.getClassLoader(), typeOrTargetRefType, methodRefName);
+        Set<MethodNode> dgmMethodNodeSet = findDGMMethodsForClassNode(controller.getSourceUnit().getClassLoader(), typeOrTargetRefType, methodRefName);
 
         List<MethodNode> allMethodNodeList = new LinkedList<>(methodNodeList);
         allMethodNodeList.addAll(dgmMethodNodeSet);

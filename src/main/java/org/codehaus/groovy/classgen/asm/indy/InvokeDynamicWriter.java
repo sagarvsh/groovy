@@ -36,7 +36,7 @@ import org.codehaus.groovy.classgen.asm.MethodCallerMultiAdapter;
 import org.codehaus.groovy.classgen.asm.OperandStack;
 import org.codehaus.groovy.classgen.asm.WriterController;
 import org.codehaus.groovy.runtime.wrappers.Wrapper;
-import org.codehaus.groovy.vmplugin.v7.IndyInterface;
+import org.codehaus.groovy.vmplugin.v8.IndyInterface;
 import org.objectweb.asm.Handle;
 
 import java.lang.invoke.CallSite;
@@ -44,15 +44,15 @@ import java.lang.invoke.MethodHandles.Lookup;
 import java.lang.invoke.MethodType;
 
 import static org.codehaus.groovy.classgen.asm.BytecodeHelper.getTypeDescription;
-import static org.codehaus.groovy.vmplugin.v7.IndyInterface.CALL_TYPES.CAST;
-import static org.codehaus.groovy.vmplugin.v7.IndyInterface.CALL_TYPES.GET;
-import static org.codehaus.groovy.vmplugin.v7.IndyInterface.CALL_TYPES.INIT;
-import static org.codehaus.groovy.vmplugin.v7.IndyInterface.CALL_TYPES.METHOD;
-import static org.codehaus.groovy.vmplugin.v7.IndyInterface.GROOVY_OBJECT;
-import static org.codehaus.groovy.vmplugin.v7.IndyInterface.IMPLICIT_THIS;
-import static org.codehaus.groovy.vmplugin.v7.IndyInterface.SAFE_NAVIGATION;
-import static org.codehaus.groovy.vmplugin.v7.IndyInterface.SPREAD_CALL;
-import static org.codehaus.groovy.vmplugin.v7.IndyInterface.THIS_CALL;
+import static org.codehaus.groovy.vmplugin.v8.IndyInterface.CallType.CAST;
+import static org.codehaus.groovy.vmplugin.v8.IndyInterface.CallType.GET;
+import static org.codehaus.groovy.vmplugin.v8.IndyInterface.CallType.INIT;
+import static org.codehaus.groovy.vmplugin.v8.IndyInterface.CallType.METHOD;
+import static org.codehaus.groovy.vmplugin.v8.IndyInterface.GROOVY_OBJECT;
+import static org.codehaus.groovy.vmplugin.v8.IndyInterface.IMPLICIT_THIS;
+import static org.codehaus.groovy.vmplugin.v8.IndyInterface.SAFE_NAVIGATION;
+import static org.codehaus.groovy.vmplugin.v8.IndyInterface.SPREAD_CALL;
+import static org.codehaus.groovy.vmplugin.v8.IndyInterface.THIS_CALL;
 import static org.objectweb.asm.Opcodes.H_INVOKESTATIC;
 
 /**
@@ -121,25 +121,26 @@ public class InvokeDynamicWriter extends InvocationWriter {
         operandStack.replace(ClassHelper.OBJECT_TYPE, numberOfArguments);
         compileStack.popLHS();
     }
-    
+
     private void makeIndyCall(MethodCallerMultiAdapter adapter, Expression receiver, boolean implicitThis, boolean safe, String methodName, Expression arguments) {
         OperandStack operandStack = controller.getOperandStack();
-        
+
         StringBuilder sig = new StringBuilder(prepareIndyCall(receiver, implicitThis));
-        
+
         // load arguments
         int numberOfArguments = 1;
         ArgumentListExpression ae = makeArgumentList(arguments);
         boolean containsSpreadExpression = AsmClassGenerator.containsSpreadExpression(arguments);
+        AsmClassGenerator acg = controller.getAcg();
         if (containsSpreadExpression) {
-            controller.getAcg().despreadList(ae.getExpressions(), true);
+            acg.despreadList(ae.getExpressions(), true);
             sig.append(getTypeDescription(Object[].class));
         } else {
             for (Expression arg : ae.getExpressions()) {
-                arg.visit(controller.getAcg());
+                arg.visit(acg);
                 if (arg instanceof CastExpression) {
                     operandStack.box();
-                    controller.getAcg().loadWrapper(arg);
+                    acg.loadWrapper(arg);
                     sig.append(getTypeDescription(Wrapper.class));
                 } else {
                     sig.append(getTypeDescription(operandStack.getTopOperand()));
@@ -150,7 +151,7 @@ public class InvokeDynamicWriter extends InvocationWriter {
 
         sig.append(")Ljava/lang/Object;");
         String callSiteName = METHOD.getCallSiteName();
-        if (adapter==null) callSiteName = INIT.getCallSiteName();
+        if (adapter == null) callSiteName = INIT.getCallSiteName();
         int flags = getMethodCallFlags(adapter, safe, containsSpreadExpression);
         finishIndyCall(BSM, callSiteName, sig.toString(), numberOfArguments, methodName, flags);
     }

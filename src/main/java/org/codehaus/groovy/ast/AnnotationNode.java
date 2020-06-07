@@ -72,7 +72,7 @@ public class AnnotationNode extends ASTNode {
 
     private void assertMembers() {
         if (members == null) {
-             members = new LinkedHashMap<String, Expression>();
+             members = new LinkedHashMap<>();
         }
     }
 
@@ -193,17 +193,22 @@ public class AnnotationNode extends ASTNode {
     }
 
     @Override
+    public String toString() {
+        return super.toString() + "[" + getText() + "]";
+    }
+
+    @Override
     public String getText() {
-        String memberText = "";
+        StringBuilder memberText = new StringBuilder();
         if (members != null) {
             boolean first = true;
             for (Map.Entry<String, Expression> next : members.entrySet()) {
                 if (first) {
                     first = false;
                 } else {
-                    memberText += ", ";
+                    memberText.append(", ");
                 }
-                memberText += next.getKey() + ": " + next.getValue().getText();
+                memberText.append(next.getKey()).append(": ").append(next.getValue().getText());
             }
         }
         return "@" + classNode.getText() + "(" + memberText + ")";

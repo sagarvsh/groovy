@@ -63,12 +63,12 @@ import static org.apache.groovy.util.BeanUtils.capitalize;
 import static org.codehaus.groovy.ast.tools.ClosureUtils.getParametersSafe;
 
 /**
- * Visitor to resolve constants and method calls from static Imports
+ * Visitor to resolve constants and method calls from static imports.
  */
 public class StaticImportVisitor extends ClassCodeExpressionTransformer {
     private ClassNode currentClass;
     private MethodNode currentMethod;
-    private SourceUnit source;
+    private SourceUnit sourceUnit;
     private boolean inSpecialConstructorCall;
     private boolean inClosure;
     private boolean inPropertyExpression;
@@ -77,10 +77,19 @@ public class StaticImportVisitor extends ClassCodeExpressionTransformer {
     private boolean inAnnotation;
     private boolean inLeftExpression;
 
-    public void visitClass(ClassNode node, SourceUnit source) {
-        this.currentClass = node;
-        this.source = source;
-        super.visitClass(node);
+    public StaticImportVisitor(final ClassNode classNode, final SourceUnit sourceUnit) {
+        this.currentClass = classNode;
+        this.sourceUnit = sourceUnit;
+    }
+
+    /**
+     * Call {@link #StaticImportVisitor(ClassNode,SourceUnit)} then {@link #visitClass(ClassNode)}.
+     */
+    @Deprecated
+    public void visitClass(final ClassNode classNode, final SourceUnit sourceUnit) {
+        this.currentClass = classNode;
+        this.sourceUnit = sourceUnit;
+        visitClass(classNode);
     }
 
     @Override
@@ -100,25 +109,26 @@ public class StaticImportVisitor extends ClassCodeExpressionTransformer {
 
     public Expression transform(Expression exp) {
         if (exp == null) return null;
-        if (exp.getClass() == VariableExpression.class) {
+        Class<? extends Expression> clazz = exp.getClass();
+        if (clazz == VariableExpression.class) {
             return transformVariableExpression((VariableExpression) exp);
         }
-        if (exp.getClass() == BinaryExpression.class) {
+        if (clazz == BinaryExpression.class) {
             return transformBinaryExpression((BinaryExpression) exp);
         }
-        if (exp.getClass() == PropertyExpression.class) {
+        if (clazz == PropertyExpression.class) {
             return transformPropertyExpression((PropertyExpression) exp);
         }
-        if (exp.getClass() == MethodCallExpression.class) {
+        if (clazz == MethodCallExpression.class) {
             return transformMethodCallExpression((MethodCallExpression) exp);
         }
-        if (exp.getClass() == ClosureExpression.class) {
+        if (exp instanceof ClosureExpression) {
             return transformClosureExpression((ClosureExpression) exp);
         }
-        if (exp.getClass() == ConstructorCallExpression.class) {
+        if (clazz == ConstructorCallExpression.class) {
             return transformConstructorCallExpression((ConstructorCallExpression) exp);
         }
-        if (exp.getClass() == ArgumentListExpression.class) {
+        if (clazz == ArgumentListExpression.class) {
             Expression result = exp.transformExpression(this);
             if (inPropertyExpression) {
                 foundArgs = result;
@@ -222,19 +232,6 @@ public class StaticImportVisitor extends ClassCodeExpressionTransformer {
         return ve;
     }
 
-    /**
-     * Set the source position of toSet including its property expression if it has one.
-     *
-     * @param toSet resulting node
-     * @param origNode original node
-     */
-    private static void setSourcePosition(Expression toSet, Expression origNode) {
-        toSet.setSourcePosition(origNode);
-        if (toSet instanceof PropertyExpression) {
-            ((PropertyExpression) toSet).getProperty().setSourcePosition(origNode);
-        }
-    }
-
     protected Expression transformMethodCallExpression(MethodCallExpression mce) {
         Expression args = transform(mce.getArguments());
         Expression method = transform(mce.getMethod());
@@ -250,7 +247,6 @@ public class StaticImportVisitor extends ClassCodeExpressionTransformer {
         if (mce.isImplicitThis() || isExplicitThisOrSuper) {
             if (mce.isImplicitThis()) {
                 if (null == currentClass.tryFindPossibleMethod(mce.getMethodAsString(), args)) {
-
                     Expression ret = findStaticMethodImportFromModule(method, args);
                     if (ret != null) {
                         setSourcePosition(ret, mce);
@@ -475,7 +471,7 @@ public class StaticImportVisitor extends ClassCodeExpressionTransformer {
             if (expression != null) return expression;
             expression = findStaticPropertyAccessorGivenArgs(importNode.getType(), getPropNameForAccessor(importNode.getFieldName()), args);
             if (expression != null) {
-                return new StaticMethodCallExpression(importNode.getType(), importNode.getFieldName(), args);
+                return newStaticMethodCallX(importNode.getType(), importNode.getFieldName(), args);
             }
         }
         // look for one of these:
@@ -491,7 +487,7 @@ public class StaticImportVisitor extends ClassCodeExpressionTransformer {
                 if (expression != null) return expression;
                 expression = findStaticPropertyAccessorGivenArgs(importClass, importMember, args);
                 if (expression != null) {
-                    return new StaticMethodCallExpression(importClass, prefix(name) + capitalize(importMember), args);
+                    return newStaticMethodCallX(importClass, prefix(name) + capitalize(importMember), args);
                 }
             }
         }
@@ -509,7 +505,7 @@ public class StaticImportVisitor extends ClassCodeExpressionTransformer {
                 if (expression != null) return expression;
                 expression = findStaticPropertyAccessorGivenArgs(starImportType, getPropNameForAccessor(name), args);
                 if (expression != null) {
-                    return new StaticMethodCallExpression(starImportType, name, args);
+                    return newStaticMethodCallX(starImportType, name, args);
                 }
             }
         }
@@ -538,9 +534,9 @@ public class StaticImportVisitor extends ClassCodeExpressionTransformer {
         if (accessor == null && hasStaticProperty(staticImportType, propName)) {
             // args will be replaced
             if (inLeftExpression)
-                accessor = new StaticMethodCallExpression(staticImportType, accessorName, ArgumentListExpression.EMPTY_ARGUMENTS);
+                accessor = newStaticMethodCallX(staticImportType, accessorName, ArgumentListExpression.EMPTY_ARGUMENTS);
             else
-                accessor = new PropertyExpression(new ClassExpression(staticImportType), propName);
+                accessor = newStaticPropertyX(staticImportType, propName);
         }
         return accessor;
     }
@@ -556,7 +552,7 @@ public class StaticImportVisitor extends ClassCodeExpressionTransformer {
         if (staticImportType.isPrimaryClassNode() || staticImportType.isResolved()) {
             FieldNode field = getField(staticImportType, fieldName);
             if (field != null && field.isStatic())
-                return new PropertyExpression(new ClassExpression(staticImportType), fieldName);
+                return newStaticPropertyX(staticImportType, fieldName);
         }
         return null;
     }
@@ -564,13 +560,22 @@ public class StaticImportVisitor extends ClassCodeExpressionTransformer {
     private static Expression findStaticMethod(ClassNode staticImportType, String methodName, Expression args) {
         if (staticImportType.isPrimaryClassNode() || staticImportType.isResolved()) {
             if (staticImportType.hasPossibleStaticMethod(methodName, args)) {
-                return new StaticMethodCallExpression(staticImportType, methodName, args);
+                return newStaticMethodCallX(staticImportType, methodName, args);
             }
         }
         return null;
     }
 
+    private static PropertyExpression newStaticPropertyX(ClassNode type, String name) {
+        return new PropertyExpression(new ClassExpression(type.getPlainNodeReference()), name);
+    }
+
+    private static StaticMethodCallExpression newStaticMethodCallX(ClassNode type, String name, Expression args) {
+        return new StaticMethodCallExpression(type.getPlainNodeReference(), name, args);
+    }
+
+    @Override
     protected SourceUnit getSourceUnit() {
-        return source;
+        return sourceUnit;
     }
 }

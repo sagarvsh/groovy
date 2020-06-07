@@ -18,6 +18,11 @@
  */
 package groovy.console.ui
 
+import com.github.javaparser.ParseProblemException
+import com.github.javaparser.StaticJavaParser
+import com.github.javaparser.ast.CompilationUnit
+import com.github.javaparser.ast.Modifier
+import com.github.javaparser.ast.body.TypeDeclaration
 import groovy.cli.internal.CliBuilderInternal
 import groovy.cli.internal.OptionAccessor
 import groovy.console.ui.text.FindReplaceUtility
@@ -25,10 +30,19 @@ import groovy.console.ui.text.GroovyFilter
 import groovy.console.ui.text.SmartDocumentFilter
 import groovy.swing.SwingBuilder
 import groovy.transform.CompileStatic
+import groovy.transform.EqualsAndHashCode
 import groovy.transform.ThreadInterrupt
+import groovy.transform.TupleConstructor
 import groovy.ui.GroovyMain
+import org.antlr.v4.gui.TestRig
+import org.antlr.v4.runtime.CharStream
+import org.antlr.v4.runtime.CharStreams
+import org.antlr.v4.runtime.CommonTokenStream
 import org.apache.groovy.antlr.LexerFrame
 import org.apache.groovy.io.StringBuilderWriter
+import org.apache.groovy.parser.antlr4.GroovyLangLexer
+import org.apache.groovy.parser.antlr4.GroovyLangParser
+import org.apache.groovy.util.JavaShell
 import org.apache.groovy.util.SystemUtil
 import org.codehaus.groovy.control.CompilerConfiguration
 import org.codehaus.groovy.control.ErrorCollector
@@ -148,9 +162,6 @@ class Console implements CaretListener, HyperlinkListener, ComponentListener, Fo
     boolean loopMode = prefs.getBoolean('loopMode', false)
     int inputAreaContentHash
 
-    boolean indy = prefs.getBoolean('indy', false)
-    Action indyAction
-
     //to allow loading classes dynamically when using @Grab (GROOVY-4877, GROOVY-5871)
     boolean useScriptClassLoaderForScriptExecution = false
 
@@ -239,7 +250,7 @@ class Console implements CaretListener, HyperlinkListener, ComponentListener, Fo
             h(longOpt: 'help', messages['cli.option.help.description'])
             V(longOpt: 'version', messages['cli.option.version.description'])
             pa(longOpt: 'parameters', messages['cli.option.parameters.description'])
-            i(longOpt: 'indy', messages['cli.option.indy.description'])
+            pr(longOpt: 'enable-preview', messages['cli.option.enable.preview.description'])
             D(longOpt: 'define', type: Map, argName: 'name=value', messages['cli.option.define.description'])
             _(longOpt: 'configscript', args: 1, messages['cli.option.configscript.description'])
         }
@@ -284,10 +295,6 @@ class Console implements CaretListener, HyperlinkListener, ComponentListener, Fo
         }
 
         baseConfig.setParameters(options.hasOption("pa"))
-
-        if (options.i) {
-            enableIndy(baseConfig)
-        }
 
         def console = new Console(Thread.currentThread().contextClassLoader, new Binding(), baseConfig)
         console.useScriptClassLoaderForScriptExecution = true
@@ -345,10 +352,6 @@ class Console implements CaretListener, HyperlinkListener, ComponentListener, Fo
     Console(ClassLoader parent, Binding binding = new Binding(), CompilerConfiguration baseConfig = new CompilerConfiguration(System.getProperties())) {
         this.baseConfig = baseConfig
         this.maxOutputChars = loadMaxOutputChars()
-        indy = indy || isIndyEnabled(baseConfig)
-        if (indy) {
-            enableIndy(baseConfig)
-        }
 
         // Set up output file for stdout/stderr, if any
         def outputLogFileName = prefs.get('outputLogFileName', null)
@@ -462,7 +465,7 @@ class Console implements CaretListener, HyperlinkListener, ComponentListener, Fo
             swing.consoleFrame.show()
         }
         installInterceptor()
-        updateTitle() // Title changes based on indy setting
+        updateTitle()
         swing.doLater inputArea.&requestFocus
     }
 
@@ -774,13 +777,17 @@ class Console implements CaretListener, HyperlinkListener, ComponentListener, Fo
     }
 
     void exitDesktop(EventObject evt = null, quitResponse = null) {
-        exit(evt)
-        quitResponse.performQuit()
+        if (exit(evt)) {
+            quitResponse.performQuit()
+        } else {
+            quitResponse.cancelQuit()
+        }
     }
 
-    void exit(EventObject evt = null) {
+    boolean exit(EventObject evt = null) {
         if (askToInterruptScript()) {
-            if (askToSaveFile()) {
+            def exit = askToSaveFile()
+            if (exit) {
                 if (frame instanceof Window) {
                     frame.hide()
                     frame.dispose()
@@ -793,6 +800,7 @@ class Console implements CaretListener, HyperlinkListener, ComponentListener, Fo
                     systemErrorInterceptor.stop()
                 }
             }
+            return exit
         }
     }
 
@@ -856,6 +864,10 @@ class Console implements CaretListener, HyperlinkListener, ComponentListener, Fo
                 // GROOVY-3684: focus away and then back to inputArea ensures caret blinks
                 swing.doLater outputArea.&requestFocusInWindow
                 swing.doLater inputArea.&requestFocusInWindow
+                // Line numbers are typically (re)drawn using a document listener,
+                // but those were disabled above while modifying the document.
+                // So make sure line numbers are drawn now.
+                inputEditor.repaint()
             }
         }
     }
@@ -903,15 +915,8 @@ class Console implements CaretListener, HyperlinkListener, ComponentListener, Fo
                     int errorLine = se.line
                     String message = se.originalMessage
 
-                    String scriptFileName = scriptFile?.name ?: DEFAULT_SCRIPT_NAME_START
-
                     def doc = outputArea.styledDocument
-
-                    def style = hyperlinkStyle
-                    def hrefAttr = new SimpleAttributeSet()
-                    // don't pass a GString as it won't be coerced to String as addAttribute takes an Object
-                    hrefAttr.addAttribute(HTML.Attribute.HREF, 'file://' + scriptFileName + ':' + errorLine)
-                    style.addAttribute(HTML.Tag.A, hrefAttr)
+                    Style style = createLinkStyle(errorLine)
 
                     insertString(doc, doc.length, message + ' at ', stacktraceStyle)
                     insertString(doc, doc.length, "line: ${se.line}, column: ${se.startColumn}\n\n", style)
@@ -923,6 +928,29 @@ class Console implements CaretListener, HyperlinkListener, ComponentListener, Fo
                     def doc = outputArea.styledDocument
                     insertString(doc, doc.length, "${error.message}\n", new SimpleAttributeSet())
                 }
+            }
+        } else if (t instanceof ParseProblemException) {
+            def problemList = ((ParseProblemException) t).getProblems()
+            int count = problemList.size()
+            appendOutputNl("${count} compilation error${count > 1 ? 's' : ''}:\n\n", commandStyle)
+
+            def doc = outputArea.styledDocument
+            problemList.each { p ->
+                insertString(doc, doc.length, "${p.message}", stacktraceStyle)
+
+                if (p.location.isPresent()) {
+                    def range = p.location.get().begin.range
+                    if (range.isPresent()) {
+                        def position = range.get().begin
+                        def errorLine = position.line
+                        def errorCol = position.column
+                        Style style = createLinkStyle(errorLine)
+
+                        insertString(doc, doc.length, " at ", stacktraceStyle)
+                        insertString(doc, doc.length, "line: ${errorLine}, column: ${errorCol}\n\n", style)
+                    }
+                }
+
             }
         } else {
             reportException(t)
@@ -939,6 +967,16 @@ class Console implements CaretListener, HyperlinkListener, ComponentListener, Fo
             prepareOutputWindow()
             showOutputWindow()
         }
+    }
+
+    private Style createLinkStyle(int errorLine) {
+        String scriptFileName = scriptFile?.name ?: DEFAULT_SCRIPT_NAME_START
+        def style = hyperlinkStyle
+        def hrefAttr = new SimpleAttributeSet()
+        // don't pass a GString as it won't be coerced to String as addAttribute takes an Object
+        hrefAttr.addAttribute(HTML.Attribute.HREF, 'file://' + scriptFileName + ':' + errorLine)
+        style.addAttribute(HTML.Tag.A, hrefAttr)
+        return style
     }
 
     private calcPreferredSize(a, b, c) {
@@ -1037,6 +1075,29 @@ class Console implements CaretListener, HyperlinkListener, ComponentListener, Fo
         new AstBrowser(inputArea, rootElement, shell.getClassLoader(), config).run({ inputArea.getText() })
     }
 
+    @CompileStatic
+    private static class CstInspector extends TestRig {
+        CstInspector() throws Exception {
+            super(new String[] { 'Groovy', 'compilationUnit', '-gui' })
+        }
+
+        void inspectParseTree(String text) {
+            CharStream charStream = CharStreams.fromReader(new StringReader(text))
+            GroovyLangLexer lexer = new GroovyLangLexer(charStream)
+            CommonTokenStream tokens = new CommonTokenStream(lexer)
+            GroovyLangParser parser = new GroovyLangParser(tokens)
+            process(lexer, GroovyLangParser.class, parser, charStream)
+        }
+    }
+
+    @CompileStatic
+    void inspectCst(EventObject evt = null) {
+        String text = this.inputEditor.textEditor.text
+
+        def gtr = new CstInspector()
+        gtr.inspectParseTree(text)
+    }
+
     void inspectTokens(EventObject evt = null) {
         def content = inputArea.getText()
         def lf = new LexerFrame(new StringReader(content))
@@ -1103,13 +1164,76 @@ class Console implements CaretListener, HyperlinkListener, ComponentListener, Fo
         return consoleControllers.find { it.consoleId == consoleId }
     }
 
+    @CompileStatic
+    private class GroovySourceType extends SourceType {
+        GroovySourceType() {
+            super('groovy')
+        }
+
+        @Override
+        Object run(String src) {
+            String name = ((File) Console.this.scriptFile)?.name ?: (DEFAULT_SCRIPT_NAME_START + Console.this.scriptNameCounter++)
+            Console.this.shell.run(src, name, [])
+        }
+
+        @Override
+        Object compile(String src) {
+            shell.getClassLoader().parseClass(src)
+        }
+    }
+
+    @CompileStatic
+    private class JavaSourceType extends SourceType {
+        JavaSourceType() {
+            super('java')
+        }
+
+        @Override
+        Object run(String src) {
+            Optional<String> optionalPrimaryClassName = findPrimaryClassName(src)
+            if (optionalPrimaryClassName.isPresent()) {
+                def js = new JavaShell(Thread.currentThread().contextClassLoader)
+                js.run(optionalPrimaryClassName.get(), src)
+            } else {
+                System.err.println('Initial parsing successful but no public class found. Compile/run will not proceed.')
+            }
+            return null
+        }
+
+        @Override
+        Object compile(String src) {
+            Optional<String> optionalPrimaryClassName = findPrimaryClassName(src)
+            if (optionalPrimaryClassName.isPresent()) {
+                def js = new JavaShell(Thread.currentThread().contextClassLoader)
+                js.compileAll(optionalPrimaryClassName.get(), src)
+            } else {
+                System.err.println('Initial parsing successful but no public class found. Compile will not proceed.')
+            }
+            return null
+        }
+    }
+
+    @CompileStatic
+    @EqualsAndHashCode
+    @TupleConstructor
+    private abstract class SourceType {
+        String extension
+
+        abstract Object run(String src)
+        abstract Object compile(String src)
+    }
+
+    void runJava(EventObject evt = null) {
+        runScript(evt, new JavaSourceType())
+    }
+
     // actually run the script
-    void runScript(EventObject evt = null) {
+    void runScript(EventObject evt = null, SourceType st = new GroovySourceType()) {
         saveInputAreaContentHash()
         if (saveOnRun && scriptFile != null) {
-            if (fileSave(evt)) runScriptImpl(false)
+            if (fileSave(evt)) runScriptImpl(false, st)
         } else {
-            runScriptImpl(false)
+            runScriptImpl(false, st)
         }
     }
 
@@ -1123,33 +1247,13 @@ class Console implements CaretListener, HyperlinkListener, ComponentListener, Fo
         prefs.putBoolean('loopMode', loopMode)
     }
 
-    void indy(EventObject evt = null) {
-        indy = evt.source.selected
-        prefs.putBoolean('indy', indy)
-        if (indy) {
-            enableIndy(baseConfig)
-        } else {
-            disableIndy(baseConfig)
-        }
-        updateTitle()
-        newScript(shell.classLoader, shell.context)
+    void runSelectedJava(EventObject evt = null) {
+        runSelectedScript(evt, new JavaSourceType())
     }
 
-    private static void enableIndy(CompilerConfiguration cc) {
-        cc.getOptimizationOptions().put(CompilerConfiguration.INVOKEDYNAMIC, true)
-    }
-
-    private static void disableIndy(CompilerConfiguration cc) {
-        cc.getOptimizationOptions().remove(CompilerConfiguration.INVOKEDYNAMIC)
-    }
-
-    private static boolean isIndyEnabled(CompilerConfiguration cc) {
-        cc.getOptimizationOptions().get(CompilerConfiguration.INVOKEDYNAMIC)
-    }
-
-    void runSelectedScript(EventObject evt = null) {
+    void runSelectedScript(EventObject evt = null, SourceType st = new GroovySourceType()) {
         saveInputAreaContentHash()
-        runScriptImpl(true)
+        runScriptImpl(true, st)
     }
 
     void addClasspathJar(EventObject evt = null) {
@@ -1218,7 +1322,7 @@ class Console implements CaretListener, HyperlinkListener, ComponentListener, Fo
         inputAreaContentHash = inputArea.getText().hashCode()
     }
 
-    private void runScriptImpl(boolean selected) {
+    private void runScriptImpl(boolean selected, SourceType st = new GroovySourceType()) {
         if (scriptRunning) {
             statusLabel.text = 'Cannot run script now as a script is already running. Please wait or use "Interrupt Script" option.'
             return
@@ -1226,8 +1330,8 @@ class Console implements CaretListener, HyperlinkListener, ComponentListener, Fo
         scriptRunning = true
         interruptAction.enabled = true
         stackOverFlowError = false // reset this flag before running a script
-        def endLine = System.getProperty('line.separator')
-        def record = new HistoryRecord(allText: inputArea.getText().replaceAll(endLine, '\n'),
+        def endLine = System.lineSeparator()
+        def record = new HistoryRecord(allText: inputArea.getText().replace(endLine, '\n'),
                 selectionStart: textSelectionStart, selectionEnd: textSelectionEnd)
         addToHistory(record)
         pendingRecord = new HistoryRecord(allText: '', selectionStart: 0, selectionEnd: 0)
@@ -1236,8 +1340,9 @@ class Console implements CaretListener, HyperlinkListener, ComponentListener, Fo
 
         // Print the input text
         if (showScriptInOutput) {
+            final promptPrefix = "${st.extension}> "
             for (line in record.getTextToRun(selected).tokenize('\n')) {
-                appendOutputNl('groovy> ', promptStyle)
+                appendOutputNl(promptPrefix, promptStyle)
                 appendOutput(line, commandStyle)
             }
             appendOutputNl(' \n', promptStyle)
@@ -1249,7 +1354,6 @@ class Console implements CaretListener, HyperlinkListener, ComponentListener, Fo
             try {
                 systemOutInterceptor.setConsoleId(this.getConsoleId())
                 SwingUtilities.invokeLater { showExecutingMessage() }
-                String name = scriptFile?.name ?: (DEFAULT_SCRIPT_NAME_START + scriptNameCounter++)
                 if (beforeExecution) {
                     beforeExecution()
                 }
@@ -1258,13 +1362,13 @@ class Console implements CaretListener, HyperlinkListener, ComponentListener, Fo
                     ClassLoader savedThreadContextClassLoader = Thread.currentThread().contextClassLoader
                     try {
                         Thread.currentThread().contextClassLoader = shell.classLoader
-                        result = shell.run(record.getTextToRun(selected), name, [])
+                        result = doRun(selected, st, record)
                     }
                     finally {
                         Thread.currentThread().contextClassLoader = savedThreadContextClassLoader
                     }
                 } else {
-                    result = shell.run(record.getTextToRun(selected), name, [])
+                    result = doRun(selected, st, record)
                 }
                 if (afterExecution) {
                     afterExecution()
@@ -1286,7 +1390,7 @@ class Console implements CaretListener, HyperlinkListener, ComponentListener, Fo
                     int delay = prefs.getInt('loopModeDelay', ConsolePreferences.DEFAULT_LOOP_MODE_DELAY_MILLIS)
                     Timer timer = new Timer(delay, {
                         if( inputAreaContentHash == inputArea.getText().hashCode() ) {
-                            runScriptImpl(selected)
+                            runScriptImpl(selected, st)
                         }
                     })
                     timer.repeats = false
@@ -1296,22 +1400,57 @@ class Console implements CaretListener, HyperlinkListener, ComponentListener, Fo
         }
     }
 
-    void compileScript(EventObject evt = null) {
+    @CompileStatic
+    private Object doRun(boolean selected, SourceType st, HistoryRecord record) {
+        def src = record.getTextToRun(selected)
+        return st.run(src)
+    }
+
+    @CompileStatic
+    private static Optional<String> findPrimaryClassName(String javaSrc) {
+        List<TypeDeclaration<?>> result = new LinkedList<>()
+        CompilationUnit compilationUnit = StaticJavaParser.parse(javaSrc)
+
+        for (TypeDeclaration<?> td : compilationUnit.getTypes()) {
+            if (!(td.isTopLevelType() && td.isClassOrInterfaceDeclaration() && td.getModifiers().contains(Modifier.publicModifier()))) continue
+
+            if (td.fullyQualifiedName.isPresent()) {
+                result << td
+            }
+        }
+
+        String className = null
+        if (!result.isEmpty()) {
+            Optional<String> optionalClassName = result.get(0).getFullyQualifiedName()
+            if (optionalClassName.isPresent()) {
+                className = optionalClassName.get()
+            }
+        }
+
+        return Optional.ofNullable(className)
+    }
+
+    void compileAsJava(EventObject evt = null) {
+        compileScript(evt, new JavaSourceType())
+    }
+
+    void compileScript(EventObject evt = null, SourceType st = new GroovySourceType()) {
         if (scriptRunning) {
             statusLabel.text = 'Cannot compile script now as a script is already running. Please wait or use "Interrupt Script" option.'
             return
         }
         stackOverFlowError = false // reset this flag before running a script
-        def endLine = System.getProperty('line.separator')
-        def record = new HistoryRecord(allText: inputArea.getText().replaceAll(endLine, '\n'),
+        def endLine = System.lineSeparator()
+        def record = new HistoryRecord(allText: inputArea.getText().replace(endLine, '\n'),
                 selectionStart: textSelectionStart, selectionEnd: textSelectionEnd)
 
         if (prefs.getBoolean('autoClearOutput', false)) clearOutput()
 
         // Print the input text
         if (showScriptInOutput) {
+            final promptPrefix = "${st.extension}> "
             for (line in record.allText.tokenize('\n')) {
-                appendOutputNl('groovy> ', promptStyle)
+                appendOutputNl(promptPrefix, promptStyle)
                 appendOutput(line, commandStyle)
             }
             appendOutputNl(' \n', promptStyle)
@@ -1322,7 +1461,7 @@ class Console implements CaretListener, HyperlinkListener, ComponentListener, Fo
         runThread = Thread.start {
             try {
                 SwingUtilities.invokeLater { showCompilingMessage() }
-                shell.getClassLoader().parseClass(record.allText)
+                st.compile(record.allText)
                 SwingUtilities.invokeLater { compileFinishNormal() }
             } catch (Throwable t) {
                 SwingUtilities.invokeLater { finishException(t, false) }
@@ -1357,9 +1496,9 @@ class Console implements CaretListener, HyperlinkListener, ComponentListener, Fo
     }
 
     private void setInputTextFromHistory(newIndex) {
-        def endLine = System.getProperty('line.separator')
+        def endLine = System.lineSeparator()
         if (historyIndex >= history.size()) {
-            pendingRecord = new HistoryRecord(allText: inputArea.getText().replaceAll(endLine, '\n'),
+            pendingRecord = new HistoryRecord(allText: inputArea.getText().replace(endLine, '\n'),
                     selectionStart: textSelectionStart, selectionEnd: textSelectionEnd)
         }
         historyIndex = newIndex
@@ -1571,9 +1710,6 @@ class Console implements CaretListener, HyperlinkListener, ComponentListener, Fo
     void updateTitle() {
         if (frame.title) {
             String title = 'GroovyConsole'
-            if (indy) {
-                title += ' (Indy)'
-            }
             if (scriptFile != null) {
                 frame.title = scriptFile.name + (dirty ? ' * ' : '') + ' - ' + title
             } else {

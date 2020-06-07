@@ -20,9 +20,12 @@ package groovy.lang;
 
 import org.codehaus.groovy.runtime.InvokerHelper;
 import org.codehaus.groovy.runtime.IteratorClosureAdapter;
+import org.codehaus.groovy.runtime.RangeInfo;
 
+import java.io.Serializable;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.math.RoundingMode;
 import java.util.AbstractList;
 import java.util.Iterator;
 import java.util.List;
@@ -48,8 +51,9 @@ import static org.codehaus.groovy.runtime.dgmimpl.NumberNumberPlus.plus;
  *
  * @since 2.5.0
  */
-public class NumberRange extends AbstractList<Comparable> implements Range<Comparable> {
+public class NumberRange extends AbstractList<Comparable> implements Range<Comparable>, Serializable {
 
+    private static final long serialVersionUID = 5107424833653948484L;
     /**
      * The first value in the range.
      */
@@ -173,6 +177,20 @@ public class NumberRange extends AbstractList<Comparable> implements Range<Compa
         this.to = (Comparable) tempTo;
         this.stepSize = stepSize == null ? 1 : stepSize;
         this.inclusive = inclusive;
+    }
+
+    /**
+     * A method for determining from and to information when using this IntRange to index an aggregate object of the specified size.
+     * Normally only used internally within Groovy but useful if adding range indexing support for your own aggregates.
+     *
+     * @param size the size of the aggregate being indexed
+     * @return the calculated range information (with 1 added to the to value, ready for providing to subList
+     */
+    public RangeInfo subListBorders(int size) {
+        if (stepSize.intValue() != 1) {
+            throw new IllegalStateException("Step must be 1 when used by subList!");
+        }
+        return IntRange.subListBorders(((Number) from).intValue(), ((Number) to).intValue(), inclusive, size);
     }
 
     /**
@@ -400,7 +418,7 @@ public class NumberRange extends AbstractList<Comparable> implements Range<Compa
                 final BigInteger fromNum = new BigInteger(from.toString());
                 final BigInteger toTemp = new BigInteger(to.toString());
                 final BigInteger toNum = inclusive ? toTemp : toTemp.subtract(BigInteger.ONE);
-                final BigInteger sizeNum = new BigDecimal(toNum.subtract(fromNum)).divide(new BigDecimal(stepSize.longValue()), BigDecimal.ROUND_DOWN).toBigInteger().add(BigInteger.ONE);
+                final BigInteger sizeNum = new BigDecimal(toNum.subtract(fromNum)).divide(new BigDecimal(stepSize.longValue()), RoundingMode.DOWN).toBigInteger().add(BigInteger.ONE);
                 tempsize = sizeNum.compareTo(BigInteger.valueOf(Integer.MAX_VALUE)) < 0 ? sizeNum.intValue() : Integer.MAX_VALUE;
                 shortcut = true;
             } else if (((from instanceof BigDecimal || from instanceof BigInteger) && to instanceof Number) ||
@@ -409,7 +427,7 @@ public class NumberRange extends AbstractList<Comparable> implements Range<Compa
                 final BigDecimal fromNum = new BigDecimal(from.toString());
                 final BigDecimal toTemp = new BigDecimal(to.toString());
                 final BigDecimal toNum = inclusive ? toTemp : toTemp.subtract(new BigDecimal("1.0"));
-                final BigInteger sizeNum = toNum.subtract(fromNum).divide(new BigDecimal(stepSize.longValue()), BigDecimal.ROUND_DOWN).toBigInteger().add(BigInteger.ONE);
+                final BigInteger sizeNum = toNum.subtract(fromNum).divide(new BigDecimal(stepSize.longValue()), RoundingMode.DOWN).toBigInteger().add(BigInteger.ONE);
                 tempsize = sizeNum.compareTo(BigInteger.valueOf(Integer.MAX_VALUE)) < 0 ? sizeNum.intValue() : Integer.MAX_VALUE;
                 shortcut = true;
             }

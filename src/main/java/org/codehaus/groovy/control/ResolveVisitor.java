@@ -28,9 +28,11 @@ import org.codehaus.groovy.ast.ClassCodeExpressionTransformer;
 import org.codehaus.groovy.ast.ClassHelper;
 import org.codehaus.groovy.ast.ClassNode;
 import org.codehaus.groovy.ast.CompileUnit;
+import org.codehaus.groovy.ast.CompileUnit.ConstructedOuterNestedClassNode;
 import org.codehaus.groovy.ast.DynamicVariable;
 import org.codehaus.groovy.ast.FieldNode;
 import org.codehaus.groovy.ast.GenericsType;
+import org.codehaus.groovy.ast.GenericsType.GenericsTypeName;
 import org.codehaus.groovy.ast.ImportNode;
 import org.codehaus.groovy.ast.InnerClassNode;
 import org.codehaus.groovy.ast.MethodNode;
@@ -65,6 +67,7 @@ import org.codehaus.groovy.runtime.memoize.EvictableCache;
 import org.codehaus.groovy.runtime.memoize.UnlimitedConcurrentCache;
 import org.codehaus.groovy.syntax.Types;
 import org.codehaus.groovy.transform.trait.Traits;
+import org.codehaus.groovy.vmplugin.VMPluginFactory;
 import org.objectweb.asm.Opcodes;
 
 import java.lang.annotation.Annotation;
@@ -76,15 +79,15 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.ListIterator;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.BiConsumer;
+import java.util.function.Predicate;
 
-import static org.codehaus.groovy.ast.CompileUnit.ConstructedOuterNestedClassNode;
-import static org.codehaus.groovy.ast.GenericsType.GenericsTypeName;
+import static groovy.lang.Tuple.tuple;
 import static org.codehaus.groovy.ast.tools.ClosureUtils.getParametersSafe;
-import static org.codehaus.groovy.ast.tools.GeneralUtils.inSamePackage;
-import static org.codehaus.groovy.ast.tools.GeneralUtils.isDefaultVisibility;
 
 /**
  * Visitor to resolve Types and convert VariableExpression to
@@ -114,10 +117,10 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
     private boolean inClosure = false;
 
     private final Map<ClassNode, ClassNode> possibleOuterClassNodeMap = new HashMap<>();
-    private Map<GenericsTypeName, GenericsType> genericParameterNames = new HashMap<GenericsTypeName, GenericsType>();
-    private final Set<FieldNode> fieldTypesChecked = new HashSet<FieldNode>();
-    private boolean checkingVariableTypeInDeclaration = false;
-    private ImportNode currImportNode = null;
+    private Map<GenericsTypeName, GenericsType> genericParameterNames = new HashMap<>();
+    private final Set<FieldNode> fieldTypesChecked = new HashSet<>();
+    private boolean checkingVariableTypeInDeclaration;
+    private ImportNode currImportNode;
     private MethodNode currentMethod;
     private ClassNodeResolver classNodeResolver;
 
@@ -130,30 +133,32 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
     private static class ConstructedNestedClass extends ClassNode {
         final ClassNode knownEnclosingType;
 
-        public ConstructedNestedClass(ClassNode outer, String inner) {
-            super(outer.getName() + "$" + replacePoints(inner), Opcodes.ACC_PUBLIC, ClassHelper.OBJECT_TYPE);
+        public ConstructedNestedClass(final ClassNode outer, final String inner) {
+            super(outer.getName() + "$" + inner.replace('.', '$'), Opcodes.ACC_PUBLIC, ClassHelper.OBJECT_TYPE);
             this.knownEnclosingType = outer;
             this.isPrimaryNode = false;
         }
 
+        @Override
+        public String getUnresolvedName() {
+            // outer class (aka knownEnclosingType) may have aliased name that should be reflected here too
+            return super.getUnresolvedName().replace(knownEnclosingType.getName(), knownEnclosingType.getUnresolvedName());
+        }
+
+        @Override
         public boolean hasPackageName() {
             if (redirect() != this) return super.hasPackageName();
             return knownEnclosingType.hasPackageName();
         }
 
-        public String setName(String name) {
+        @Override
+        public String setName(final String name) {
             if (redirect() != this) {
                 return super.setName(name);
             } else {
                 throw new GroovyBugError("ConstructedNestedClass#setName should not be called");
             }
         }
-    }
-
-
-
-    private static String replacePoints(String name) {
-        return name.replace('.','$');
     }
 
     /**
@@ -167,22 +172,31 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
     private static class ConstructedClassWithPackage extends ClassNode {
         final String prefix;
         String className;
-        public ConstructedClassWithPackage(String pkg, String name) {
-            super(pkg+name, Opcodes.ACC_PUBLIC,ClassHelper.OBJECT_TYPE);
+
+        public ConstructedClassWithPackage(final String pkg, final String name) {
+            super(pkg + name, Opcodes.ACC_PUBLIC, ClassHelper.OBJECT_TYPE);
             isPrimaryNode = false;
             this.prefix = pkg;
             this.className = name;
         }
+
+        @Override
         public String getName() {
-            if (redirect()!=this) return super.getName();
-            return prefix+className;
+            if (redirect() != this)
+                return super.getName();
+            return prefix + className;
         }
+
+        @Override
         public boolean hasPackageName() {
-            if (redirect()!=this) return super.hasPackageName();
-            return className.indexOf('.')!=-1;
+            if (redirect() != this)
+                return super.hasPackageName();
+            return className.indexOf('.') != -1;
         }
-        public String setName(String name) {
-            if (redirect()!=this) {
+
+        @Override
+        public String setName(final String name) {
+            if (redirect() != this) {
                 return super.setName(name);
             } else {
                 throw new GroovyBugError("ConstructedClassWithPackage#setName should not be called");
@@ -190,7 +204,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         }
     }
 
-     /**
+    /**
      * we use LowerCaseClass to limit the resolving the compiler
      * does for vanilla names starting with a lower case letter. The idea
      * that if we use a vanilla name with a lower case letter, that this
@@ -202,21 +216,30 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
      */
     private static class LowerCaseClass extends ClassNode {
         final String className;
-        public LowerCaseClass(String name) {
-            super(name, Opcodes.ACC_PUBLIC,ClassHelper.OBJECT_TYPE);
+
+        public LowerCaseClass(final String name) {
+            super(name, Opcodes.ACC_PUBLIC, ClassHelper.OBJECT_TYPE);
             isPrimaryNode = false;
             this.className = name;
         }
+
+        @Override
         public String getName() {
-            if (redirect()!=this) return super.getName();
+            if (redirect() != this)
+                return super.getName();
             return className;
         }
+
+        @Override
         public boolean hasPackageName() {
-            if (redirect()!=this) return super.hasPackageName();
+            if (redirect() != this)
+                return super.hasPackageName();
             return false;
         }
-        public String setName(String name) {
-            if (redirect()!=this) {
+
+        @Override
+        public String setName(final String name) {
+            if (redirect() != this) {
                 return super.setName(name);
             } else {
                 throw new GroovyBugError("LowerCaseClass#setName should not be called");
@@ -224,23 +247,33 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         }
     }
 
-    public ResolveVisitor(CompilationUnit cu) {
-        compilationUnit = cu;
-        this.classNodeResolver = new ClassNodeResolver();
+    public ResolveVisitor(final CompilationUnit compilationUnit) {
+        this.compilationUnit = compilationUnit;
+        // TODO: CompilationUnit.ClassNodeResolver?
+        setClassNodeResolver(new ClassNodeResolver());
     }
 
-    public void startResolving(ClassNode node, SourceUnit source) {
+    public void setClassNodeResolver(final ClassNodeResolver classNodeResolver) {
+        this.classNodeResolver = classNodeResolver;
+    }
+
+    public void startResolving(final ClassNode node, final SourceUnit source) {
         this.source = source;
         visitClass(node);
     }
 
-    protected void visitConstructorOrMethod(MethodNode node, boolean isConstructor) {
+    @Override
+    protected SourceUnit getSourceUnit() {
+        return source;
+    }
+
+    @Override
+    protected void visitConstructorOrMethod(final MethodNode node, final boolean isConstructor) {
         VariableScope oldScope = currentScope;
         currentScope = node.getVariableScope();
         Map<GenericsTypeName, GenericsType> oldPNames = genericParameterNames;
         genericParameterNames = node.isStatic() && !Traits.isTrait(node.getDeclaringClass())
-                ? new HashMap<GenericsTypeName, GenericsType>()
-                : new HashMap<GenericsTypeName, GenericsType>(genericParameterNames);
+                ? new HashMap<>() : new HashMap<>(genericParameterNames);
 
         resolveGenericsHeader(node.getGenericsTypes());
 
@@ -265,18 +298,20 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         currentScope = oldScope;
     }
 
-    public void visitField(FieldNode node) {
+    @Override
+    public void visitField(final FieldNode node) {
         ClassNode t = node.getType();
-        if(!fieldTypesChecked.contains(node)) {
+        if (!fieldTypesChecked.contains(node)) {
             resolveOrFail(t, node);
         }
         super.visitField(node);
     }
 
-    public void visitProperty(PropertyNode node) {
+    @Override
+    public void visitProperty(final PropertyNode node) {
         Map<GenericsTypeName, GenericsType> oldPNames = genericParameterNames;
         if (node.isStatic() && !Traits.isTrait(node.getDeclaringClass())) {
-            genericParameterNames = new HashMap<GenericsTypeName, GenericsType>();
+            genericParameterNames = new HashMap<>();
         }
 
         ClassNode t = node.getType();
@@ -287,7 +322,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         genericParameterNames = oldPNames;
     }
 
-    private boolean resolveToInner(ClassNode type) {
+    protected boolean resolveToInner(final ClassNode type) {
         // we do not do our name mangling to find an inner class
         // if the type is a ConstructedClassWithPackage, because in this case we
         // are resolving the name at a different place already
@@ -295,55 +330,19 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         if (type instanceof ConstructedNestedClass) return false;
         String name = type.getName();
         String saved = name;
-        while (-1 != name.lastIndexOf('.')) {
+        while (name.lastIndexOf('.') != -1) {
             name = replaceLastPointWithDollar(name);
             type.setName(name);
-            if (resolve(type)) return true;
+            if (resolve(type)) {
+                return true;
+            }
         }
-
-        if (resolveToNestedOfCurrentClassAndSuperClasses(type)) return true;
 
         type.setName(saved);
         return false;
     }
 
-    private boolean resolveToNestedOfCurrentClassAndSuperClasses(ClassNode type) {
-        // GROOVY-8531: Fail to resolve type defined in super class written in Java
-        for (ClassNode enclosingClassNode = currentClass; ClassHelper.OBJECT_TYPE != enclosingClassNode && null != enclosingClassNode; enclosingClassNode = enclosingClassNode.getSuperClass()) {
-            if(resolveToNested(enclosingClassNode, type)) return true;
-        }
-
-        return false;
-    }
-
-    private boolean resolveToNested(ClassNode enclosingType, ClassNode type) {
-        if (type instanceof ConstructedNestedClass) return false;
-        // GROOVY-3110: It may be an inner enum defined by this class itself, in which case it does not need to be
-        // explicitly qualified by the currentClass name
-        String name = type.getName();
-        if (enclosingType != type && !name.contains(".") && type.getClass().equals(ClassNode.class)) {
-            ClassNode tmp = new ConstructedNestedClass(enclosingType,name);
-            if (resolve(tmp)) {
-                if (!checkInnerTypeVisibility(enclosingType, tmp)) return false;
-
-                type.setRedirect(tmp);
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private boolean checkInnerTypeVisibility(ClassNode enclosingType, ClassNode innerClassNode) {
-        if (currentClass == enclosingType) {
-            return true;
-        }
-
-        int modifiers = innerClassNode.getModifiers();
-        return Modifier.isPublic(modifiers) || Modifier.isProtected(modifiers);
-    }
-
-    private void resolveOrFail(ClassNode type, String msg, ASTNode node) {
+    private void resolveOrFail(final ClassNode type, final String msg, final ASTNode node) {
         if (resolve(type)) return;
         if (resolveToInner(type)) return;
         if (resolveToOuterNested(type)) return;
@@ -357,6 +356,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
     // when resolving the outer class later, we set the resolved type of ConstructedOuterNestedClass instance to the actual inner class node(SEE GROOVY-7812(#2))
     private boolean resolveToOuterNested(final ClassNode type) {
         CompileUnit compileUnit = currentClass.getCompileUnit();
+        if (compileUnit == null) return false;
         String typeName = type.getName();
 
         BiConsumer<ConstructedOuterNestedClassNode, ClassNode> setRedirectListener = (s, c) -> type.setRedirect(s);
@@ -396,7 +396,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
 
         // GROOVY-9243
         toResolveFurther = false;
-        if (!whetherClassNameContainsDot(typeName)) {
+        if (typeName.indexOf('.') == -1) {
             Map<String, ClassNode> hierClasses = findHierClasses(currentClass);
             for (ClassNode cn : hierClasses.values()) {
                 ConstructedOuterNestedClassNode constructedOuterNestedClassNode = tryToConstructOuterNestedClassNodeForBaseType(compileUnit, typeName, cn, setRedirectListener);
@@ -410,29 +410,25 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         return toResolveFurther;
     }
 
-    private static boolean whetherClassNameContainsDot(String typeName) {
-        return typeName.contains(".");
-    }
-
-    private ConstructedOuterNestedClassNode tryToConstructOuterNestedClassNodeViaStaticImport(CompileUnit compileUnit, ImportNode importNode, String typeName, BiConsumer<ConstructedOuterNestedClassNode, ClassNode> setRedirectListener) {
+    private ConstructedOuterNestedClassNode tryToConstructOuterNestedClassNodeViaStaticImport(final CompileUnit compileUnit, final ImportNode importNode, final String typeName, final BiConsumer<ConstructedOuterNestedClassNode, ClassNode> setRedirectListener) {
         String importClassName = importNode.getClassName();
         ClassNode outerClassNode = compileUnit.getClass(importClassName);
 
         if (null == outerClassNode) return null;
 
-        String outerNestedClassName = importClassName + "$" + typeName.replace(".", "$");
+        String outerNestedClassName = importClassName + "$" + typeName.replace('.', '$');
         ConstructedOuterNestedClassNode constructedOuterNestedClassNode = new ConstructedOuterNestedClassNode(outerClassNode, outerNestedClassName);
         constructedOuterNestedClassNode.addSetRedirectListener(setRedirectListener);
         return constructedOuterNestedClassNode;
     }
 
-    private ConstructedOuterNestedClassNode tryToConstructOuterNestedClassNode(final ClassNode type, ClassNode outerClassNode, BiConsumer<ConstructedOuterNestedClassNode, ClassNode> setRedirectListener) {
+    private ConstructedOuterNestedClassNode tryToConstructOuterNestedClassNode(final ClassNode type, final ClassNode outerClassNode, final BiConsumer<ConstructedOuterNestedClassNode, ClassNode> setRedirectListener) {
         String outerClassName = outerClassNode.getName();
 
-        for (String typeName = type.getName(), ident = typeName; ident.contains("."); ) {
-            ident = ident.substring(0, ident.lastIndexOf("."));
+        for (String typeName = type.getName(), ident = typeName; ident.indexOf('.') != -1; ) {
+            ident = ident.substring(0, ident.lastIndexOf('.'));
             if (outerClassName.endsWith(ident)) {
-                String outerNestedClassName = outerClassName + typeName.substring(ident.length()).replace(".", "$");
+                String outerNestedClassName = outerClassName + typeName.substring(ident.length()).replace('.', '$');
                 ConstructedOuterNestedClassNode constructedOuterNestedClassNode = new ConstructedOuterNestedClassNode(outerClassNode, outerNestedClassName);
                 constructedOuterNestedClassNode.addSetRedirectListener(setRedirectListener);
                 return constructedOuterNestedClassNode;
@@ -442,7 +438,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         return null;
     }
 
-    private ConstructedOuterNestedClassNode tryToConstructOuterNestedClassNodeForBaseType(CompileUnit compileUnit, String typeName, ClassNode cn, BiConsumer<ConstructedOuterNestedClassNode, ClassNode> setRedirectListener) {
+    private ConstructedOuterNestedClassNode tryToConstructOuterNestedClassNodeForBaseType(final CompileUnit compileUnit, final String typeName, final ClassNode cn, final BiConsumer<ConstructedOuterNestedClassNode, ClassNode> setRedirectListener) {
         if (!compileUnit.getClassesToCompile().containsValue(cn)) return null;
 
         String outerNestedClassName = cn.getName() + "$" + typeName;
@@ -451,21 +447,21 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         return constructedOuterNestedClassNode;
     }
 
-    private void resolveOrFail(ClassNode type, ASTNode node, boolean prefereImports) {
+    private void resolveOrFail(final ClassNode type, final ASTNode node, final boolean prefereImports) {
         resolveGenericsTypes(type.getGenericsTypes());
         if (prefereImports && resolveAliasFromModule(type)) return;
         resolveOrFail(type, node);
     }
 
-    private void resolveOrFail(ClassNode type, ASTNode node) {
+    private void resolveOrFail(final ClassNode type, final ASTNode node) {
         resolveOrFail(type, "", node);
     }
 
-    private boolean resolve(ClassNode type) {
+    protected boolean resolve(final ClassNode type) {
         return resolve(type, true, true, true);
     }
 
-    private boolean resolve(ClassNode type, boolean testModuleImports, boolean testDefaultImports, boolean testStaticInnerClasses) {
+    protected boolean resolve(final ClassNode type, final boolean testModuleImports, final boolean testDefaultImports, final boolean testStaticInnerClasses) {
         resolveGenericsTypes(type.getGenericsTypes());
         if (type.isResolved() || type.isPrimaryClassNode()) return true;
         if (type.isArray()) {
@@ -486,7 +482,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         GenericsType genericsType = genericParameterNames.get(new GenericsTypeName(typeName));
         if (genericsType != null) {
             type.setRedirect(genericsType.getType());
-            type.setGenericsTypes(new GenericsType[]{ genericsType });
+            type.setGenericsTypes(new GenericsType[]{genericsType});
             type.setGenericsPlaceHolder(true);
             return true;
         }
@@ -496,99 +492,96 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
             return true;
         }
 
-        return  resolveNestedClass(type) ||
+        return  (!type.hasPackageName() && resolveNestedClass(type)) ||
                 resolveFromModule(type, testModuleImports) ||
                 resolveFromCompileUnit(type) ||
-                resolveFromDefaultImports(type, testDefaultImports) ||
+                (testDefaultImports && !type.hasPackageName() && resolveFromDefaultImports(type)) ||
                 resolveToOuter(type) ||
-                resolveFromStaticInnerClasses(type, testStaticInnerClasses);
+                (testStaticInnerClasses && type.hasPackageName() && resolveFromStaticInnerClasses(type));
     }
 
-    private boolean resolveNestedClass(ClassNode type) {
+    protected boolean resolveNestedClass(final ClassNode type) {
         if (type instanceof ConstructedNestedClass || type instanceof ConstructedClassWithPackage) return false;
-        // we have for example a class name A, are in class X
+
+        // We have for example a class name A, are in class X
         // and there is a nested class A$X. we want to be able
         // to access that class directly, so A becomes a valid
         // name in X.
-        // GROOVY-4043: Do this check up the hierarchy, if needed
-        Map<String, ClassNode> hierClasses = findHierClasses(currentClass);
-
-        for (ClassNode classToCheck : hierClasses.values()) {
+        // GROOVY-4043: Do this check up the hierarchy, if needed.
+        for (ClassNode classToCheck : findHierClasses(currentClass).values()) {
             if (setRedirect(type, classToCheck)) return true;
         }
 
-        // GROOVY-8947: Fail to resolve non-static inner class outside of outer class
+        // GROOVY-8947: Resolve non-static inner class outside of outer class.
         ClassNode possibleOuterClassNode = possibleOuterClassNodeMap.get(type);
-        if (null != possibleOuterClassNode) {
+        if (possibleOuterClassNode != null) {
             if (setRedirect(type, possibleOuterClassNode)) return true;
         }
 
-        // another case we want to check here is if we are in a
+        // Another case we want to check here is if we are in a
         // nested class A$B$C and want to access B without
         // qualifying it by A.B. A alone will work, since that
         // is the qualified (minus package) name of that class
         // anyway.
 
-        // That means if the current class is not an InnerClassNode
-        // there is nothing to be done.
-        if (!(currentClass instanceof InnerClassNode)) return false;
+        List<ClassNode> outerClasses = currentClass.getOuterClasses();
+        if (!outerClasses.isEmpty()) {
+            // Since we have B and want to get A we start with the most
+            // outer class, put them together and then see if that does
+            // already exist. In case of B from within A$B we are done
+            // after the first step already. In case of for example
+            // A.B.C.D.E.F and accessing E from F we test A$E=failed,
+            // A$B$E=failed, A$B$C$E=fail, A$B$C$D$E=success.
 
-        // since we have B and want to get A we start with the most
-        // outer class, put them together and then see if that does
-        // already exist. In case of B from within A$B we are done
-        // after the first step already. In case of for example
-        // A.B.C.D.E.F and accessing E from F we test A$E=failed,
-        // A$B$E=failed, A$B$C$E=fail, A$B$C$D$E=success
-
-        LinkedList<ClassNode> outerClasses = new LinkedList<ClassNode>();
-        ClassNode outer = currentClass.getOuterClass();
-        while (outer!=null) {
-            outerClasses.addFirst(outer);
-            outer = outer.getOuterClass();
-        }
-        // most outer class is now element 0
-        for (ClassNode testNode : outerClasses) {
-            if (setRedirect(type, testNode)) return true;
+            for (ListIterator<ClassNode> it = outerClasses.listIterator(outerClasses.size()); it.hasPrevious();) {
+                ClassNode outerClass = it.previous();
+                if (setRedirect(type, outerClass)) return true;
+            }
         }
 
         return false;
     }
 
-    private boolean setRedirect(ClassNode type, ClassNode classToCheck) {
-        ClassNode val = new ConstructedNestedClass(classToCheck, type.getName());
-        if (resolveFromCompileUnit(val)) {
-            type.setRedirect(val);
-            return true;
+    private boolean setRedirect(final ClassNode type, final ClassNode classToCheck) {
+        String typeName = type.getName();
+
+        Predicate<ClassNode> resolver = (ClassNode maybeOuter) -> {
+            if (!typeName.equals(maybeOuter.getName())) {
+                ClassNode maybeNested = new ConstructedNestedClass(maybeOuter, typeName);
+                if (resolveFromCompileUnit(maybeNested) || resolveToOuter(maybeNested)) {
+                    type.setRedirect(maybeNested);
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        if (resolver.test(classToCheck)) {
+            if (currentClass != classToCheck && !currentClass.getOuterClasses().contains(classToCheck) && !isVisibleNestedClass(type.redirect(), currentClass)) {
+                type.setRedirect(null);
+            } else {
+                return true;
+            }
         }
-        // also check interfaces in case we have interfaces with nested classes
-        for (ClassNode next : classToCheck.getAllInterfaces()) {
-            if (type.getName().contains(next.getName())) continue;
-            val = new ConstructedNestedClass(next, type.getName());
-            if (resolve(val, false, false, false)) {
-                type.setRedirect(val);
+        for (ClassNode face : classToCheck.getAllInterfaces()) {
+            if (resolver.test(face)) {
                 return true;
             }
         }
         return false;
     }
 
-    private static String replaceLastPointWithDollar(String name) {
+    private static String replaceLastPointWithDollar(final String name) {
         int lastPointIndex = name.lastIndexOf('.');
 
         return name.substring(0, lastPointIndex) + "$" + name.substring(lastPointIndex + 1);
     }
 
-    private boolean resolveFromStaticInnerClasses(ClassNode type, boolean testStaticInnerClasses) {
-        if (type instanceof ConstructedNestedClass) return false;
-
+    protected boolean resolveFromStaticInnerClasses(final ClassNode type) {
         // a class consisting of a vanilla name can never be
         // a static inner class, because at least one dot is
         // required for this. Example: foo.bar -> foo$bar
-        if (type instanceof LowerCaseClass) return false;
-
-        // try to resolve a public static inner class' name
-        testStaticInnerClasses &= type.hasPackageName();
-        if (testStaticInnerClasses) {
+        if (!(type instanceof LowerCaseClass || type instanceof ConstructedNestedClass)) {
             if (type instanceof ConstructedClassWithPackage) {
                 // we replace '.' only in the className part
                 // with '$' to find an inner class. The case that
@@ -601,7 +594,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
                     return true;
                 }
                 tmp.className = savedName;
-            }   else {
+            } else {
                 String savedName = type.getName();
                 String replacedPointType = replaceLastPointWithDollar(savedName);
                 type.setName(replacedPointType);
@@ -612,22 +605,30 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         return false;
     }
 
-    private boolean resolveFromDefaultImports(final ClassNode type, boolean testDefaultImports) {
-        // test default imports
-        testDefaultImports &= !type.hasPackageName();
+    protected boolean resolveFromDefaultImports(final ClassNode type) {
         // we do not resolve a vanilla name starting with a lower case letter
         // try to resolve against a default import, because we know that the
         // default packages do not contain classes like these
-        testDefaultImports &= !(type instanceof LowerCaseClass);
+        if (!(type instanceof LowerCaseClass)) {
+            String typeName = type.getName();
 
-        if (testDefaultImports) {
-            if (resolveFromDefaultImports(type)) return true;
+            Set<String> packagePrefixSet = DEFAULT_IMPORT_CLASS_AND_PACKAGES_CACHE.get(typeName);
+            if (packagePrefixSet != null) {
+                // if the type name was resolved before, we can try the successfully resolved packages first, which are much less and very likely successful to resolve.
+                // As a result, we can avoid trying other default import packages and further resolving, which can improve the resolving performance to some extent.
+                if (resolveFromDefaultImports(type, packagePrefixSet.toArray(EMPTY_STRING_ARRAY))) {
+                    return true;
+                }
+            }
 
-            final String typeName = type.getName();
+            if (resolveFromDefaultImports(type, DEFAULT_IMPORTS)) {
+                return true;
+            }
             if (BIGINTEGER_STR.equals(typeName)) {
                 type.setRedirect(ClassHelper.BigInteger_TYPE);
                 return true;
-            } else if (BIGDECIMAL_STR.equals(typeName)) {
+            }
+            if (BIGDECIMAL_STR.equals(typeName)) {
                 type.setRedirect(ClassHelper.BigDecimal_TYPE);
                 return true;
             }
@@ -635,26 +636,14 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         return false;
     }
 
-    private boolean resolveFromDefaultImports(ClassNode type) {
-        final String typeName = type.getName();
-
-        Set<String> packagePrefixSet = DEFAULT_IMPORT_CLASS_AND_PACKAGES_CACHE.get(typeName);
-        if (null != packagePrefixSet) {
-            // if the type name was resolved before, we can try the successfully resolved packages first, which are much less and very likely successful to resolve.
-            // As a result, we can avoid trying other default import packages and further resolving, which can improve the resolving performance to some extent.
-            if (resolveFromDefaultImports(type, packagePrefixSet.toArray(EMPTY_STRING_ARRAY))) {
-                return true;
-            }
-        }
-
-        return resolveFromDefaultImports(type, DEFAULT_IMPORTS);
+    private static final EvictableCache<String, Set<String>> DEFAULT_IMPORT_CLASS_AND_PACKAGES_CACHE = new UnlimitedConcurrentCache<>();
+    static {
+        Map<String, Set<String>> defaultImportClasses = VMPluginFactory.getPlugin().getDefaultImportClasses(DEFAULT_IMPORTS);
+        DEFAULT_IMPORT_CLASS_AND_PACKAGES_CACHE.putAll(defaultImportClasses);
     }
 
-
-    private static final EvictableCache<String, Set<String>> DEFAULT_IMPORT_CLASS_AND_PACKAGES_CACHE = new UnlimitedConcurrentCache<>();
-
-    private boolean resolveFromDefaultImports(final ClassNode type, final String[] packagePrefixes) {
-        final String typeName = type.getName();
+    protected boolean resolveFromDefaultImports(final ClassNode type, final String[] packagePrefixes) {
+        String typeName = type.getName();
 
         for (String packagePrefix : packagePrefixes) {
             // We limit the inner class lookups here by using ConstructedClassWithPackage.
@@ -679,7 +668,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         return false;
     }
 
-    private boolean resolveFromCompileUnit(ClassNode type) {
+    protected boolean resolveFromCompileUnit(final ClassNode type) {
         // look into the compile unit if there is a class with that name
         CompileUnit compileUnit = currentClass.getCompileUnit();
         if (compileUnit == null) return false;
@@ -691,7 +680,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         return false;
     }
 
-    private void ambiguousClass(ClassNode type, ClassNode iType, String name) {
+    private void ambiguousClass(final ClassNode type, final ClassNode iType, final String name) {
         if (type.getName().equals(iType.getName())) {
             addError("reference to " + name + " is ambiguous, both class " + type.getName() + " and " + iType.getName() + " match", type);
         } else {
@@ -699,7 +688,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         }
     }
 
-    private boolean resolveAliasFromModule(ClassNode type) {
+    private boolean resolveAliasFromModule(final ClassNode type) {
         // In case of getting a ConstructedClassWithPackage here we do not do checks for partial
         // matches with imported classes. The ConstructedClassWithPackage is already a constructed
         // node and any subclass resolving will then take place elsewhere
@@ -757,8 +746,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
                     // It is either completely a inner static class or it is not.
                     // Since we do not want to have useless lookups we create the name
                     // completely and use a ConstructedClassWithPackage to prevent lookups against the package.
-                    String className = aliasedNode.getNameWithoutPackage() + '$' +
-                            name.substring(pname.length() + 1).replace('.', '$');
+                    String className = aliasedNode.getNameWithoutPackage() + "$" + name.substring(pname.length() + 1).replace('.', '$');
                     ConstructedClassWithPackage tmp = new ConstructedClassWithPackage(aliasedNode.getPackageName() + ".", className);
                     if (resolve(tmp, true, true, false)) {
                         type.setRedirect(tmp.redirect());
@@ -771,7 +759,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         return false;
     }
 
-    private boolean resolveFromModule(ClassNode type, boolean testModuleImports) {
+    protected boolean resolveFromModule(final ClassNode type, final boolean testModuleImports) {
         if (type instanceof ConstructedNestedClass) return false;
 
         // we decided if we have a vanilla name starting with a lower case
@@ -868,7 +856,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         return false;
     }
 
-    private boolean resolveToOuter(ClassNode type) {
+    protected boolean resolveToOuter(final ClassNode type) {
         String name = type.getName();
 
         // We do not need to check instances of LowerCaseClass
@@ -897,7 +885,8 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         return false;
     }
 
-    public Expression transform(Expression exp) {
+    @Override
+    public Expression transform(final Expression exp) {
         if (exp == null) return null;
         Expression ret;
         if (exp instanceof VariableExpression) {
@@ -920,18 +909,20 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
             resolveOrFail(exp.getType(), exp);
             ret = exp.transformExpression(this);
         }
-        if (ret!=null && ret!=exp) ret.setSourcePosition(exp);
+        if (ret != null && ret != exp) {
+            ret.setSourcePosition(exp);
+        }
         return ret;
     }
 
-    private static String lookupClassName(PropertyExpression pe) {
-        boolean doInitialClassTest=true;
+    private static String lookupClassName(final PropertyExpression pe) {
+        boolean doInitialClassTest = true;
         StringBuilder name = new StringBuilder(32);
         // this loop builds a name from right to left each name part
         // separated by "."
-        for (Expression it = pe; it != null; it = ((PropertyExpression) it).getObjectExpression()) {
-            if (it instanceof VariableExpression) {
-                VariableExpression ve = (VariableExpression) it;
+        for (Expression expr = pe; expr != null; expr = ((PropertyExpression) expr).getObjectExpression()) {
+            if (expr instanceof VariableExpression) {
+                VariableExpression ve = (VariableExpression) expr;
                 // stop at super and this
                 if (ve.isSuperExpression() || ve.isThisExpression()) {
                     return null;
@@ -943,21 +934,21 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
 
                 break;
             }
+
             // anything other than PropertyExpressions or
             // VariableExpressions will stop resolving
-            else if (it.getClass() != PropertyExpression.class) {
+            if (expr.getClass() != PropertyExpression.class) {
                 return null;
-            } else {
-                PropertyExpression current = (PropertyExpression) it;
-                String propertyPart = current.getPropertyAsString();
-                // the class property stops resolving, dynamic property names too
-                if (propertyPart == null || propertyPart.equals("class")) {
-                    return null;
-                }
-                Tuple2<StringBuilder, Boolean> classNameInfo = makeClassName(doInitialClassTest, name, propertyPart);
-                name = classNameInfo.getV1();
-                doInitialClassTest = classNameInfo.getV2();
             }
+
+            String property = ((PropertyExpression) expr).getPropertyAsString();
+            // the class property stops resolving, dynamic property names too
+            if (property == null || property.equals("class")) {
+                return null;
+            }
+            Tuple2<StringBuilder, Boolean> classNameInfo = makeClassName(doInitialClassTest, name, property);
+            name = classNameInfo.getV1();
+            doInitialClassTest = classNameInfo.getV2();
         }
 
         if (null == name || name.length() == 0) return null;
@@ -965,7 +956,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         return name.toString();
     }
 
-    private static Tuple2<StringBuilder, Boolean> makeClassName(boolean doInitialClassTest, StringBuilder name, String varName) {
+    private static Tuple2<StringBuilder, Boolean> makeClassName(final boolean doInitialClassTest, final StringBuilder name, final String varName) {
         if (doInitialClassTest) {
             // we are at the first name part. This is the right most part.
             // If this part is in lower case, then we do not need a class
@@ -974,23 +965,20 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
             // can still be resolved to the class foo.Bar and the static
             // field bar.
             if (!testVanillaNameForClass(varName)) {
-                name = null;
+                return tuple(null, Boolean.TRUE);
             } else {
-                doInitialClassTest = false;
-                name = new StringBuilder(varName);
+                return tuple(new StringBuilder(varName), Boolean.FALSE);
             }
-        } else {
-            name.insert(0, varName + ".");
         }
-
-        return new Tuple2<StringBuilder, Boolean>(name, doInitialClassTest);
+        name.insert(0, varName + ".");
+        return tuple(name, Boolean.FALSE);
     }
 
     // iterate from the inner most to the outer and check for classes
     // this check will ignore a .class property, for Example Integer.class will be
     // a PropertyExpression with the ClassExpression of Integer as objectExpression
     // and class as property
-    private static Expression correctClassClassChain(PropertyExpression pe) {
+    private static Expression correctClassClassChain(final PropertyExpression pe) {
         LinkedList<Expression> stack = new LinkedList<Expression>();
         ClassExpression found = null;
         for (Expression it = pe; it != null; it = ((PropertyExpression) it).getObjectExpression()) {
@@ -1045,9 +1033,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         if (className != null) {
             ClassNode type = ClassHelper.make(className);
             if (resolve(type)) {
-                Expression ret =  new ClassExpression(type);
-                ret.setSourcePosition(pe);
-                return ret;
+                return new ClassExpression(type);
             }
         }
         if (objectExpression instanceof ClassExpression && pe.getPropertyAsString() != null) {
@@ -1058,9 +1044,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
                 ClassNode type = new ConstructedNestedClass(classNode, pe.getPropertyAsString());
                 if (resolve(type, false, false, false)) {
                     if (classNode == ce.getType() || isVisibleNestedClass(type, ce.getType())) {
-                        Expression ret = new ClassExpression(type);
-                        ret.setSourcePosition(ce);
-                        return ret;
+                        return new ClassExpression(type);
                     }
                 }
                 classNode = classNode.getSuperClass();
@@ -1072,17 +1056,15 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         return ret;
     }
 
-    private boolean isVisibleNestedClass(ClassNode type, ClassNode ceType) {
-        if (!type.isRedirectNode()) return false;
-        ClassNode redirect = type.redirect();
-        if (Modifier.isPublic(redirect.getModifiers()) || Modifier.isProtected(redirect.getModifiers())) return true;
-        // package local
-        return isDefaultVisibility(redirect.getModifiers()) && inSamePackage(ceType, redirect);
+    private static boolean isVisibleNestedClass(final ClassNode innerType, final ClassNode outerType) {
+        int modifiers = innerType.getModifiers();
+        return Modifier.isPublic(modifiers) || Modifier.isProtected(modifiers)
+                || (!Modifier.isPrivate(modifiers) && Objects.equals(innerType.getPackageName(), outerType.getPackageName()));
     }
 
-    private boolean directlyImplementsTrait(ClassNode trait) {
+    private boolean directlyImplementsTrait(final ClassNode trait) {
         ClassNode[] interfaces = currentClass.getInterfaces();
-        if (interfaces==null) {
+        if (interfaces == null) {
             return currentClass.getSuperClass().equals(trait);
         }
         for (ClassNode node : interfaces) {
@@ -1093,7 +1075,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         return currentClass.getSuperClass().equals(trait);
     }
 
-    private void checkThisAndSuperAsPropertyAccess(PropertyExpression expression) {
+    private void checkThisAndSuperAsPropertyAccess(final PropertyExpression expression) {
         if (expression.isImplicitThis()) return;
         String prop = expression.getPropertyAsString();
         if (prop == null) return;
@@ -1105,7 +1087,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
                 addError("The usage of 'Class.this' and 'Class.super' is only allowed in nested/inner classes.", expression);
                 return;
             }
-            if (currentScope!=null && !currentScope.isInStaticContext() && Traits.isTrait(type) && "super".equals(prop) && directlyImplementsTrait(type)) {
+            if (currentScope != null && !currentScope.isInStaticContext() && Traits.isTrait(type) && "super".equals(prop) && directlyImplementsTrait(type)) {
                 return;
             }
             ClassNode iterType = currentClass;
@@ -1124,7 +1106,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         }
     }
 
-    protected Expression transformVariableExpression(VariableExpression ve) {
+    protected Expression transformVariableExpression(final VariableExpression ve) {
         visitAnnotations(ve);
         Variable v = ve.getAccessedVariable();
 
@@ -1135,7 +1117,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
              */
             return ve;
         }
-        if (v instanceof DynamicVariable){
+        if (v instanceof DynamicVariable) {
             String name = ve.getName();
             ClassNode t = ClassHelper.make(name);
             // asking isResolved here allows to check if a primitive
@@ -1148,12 +1130,9 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
                 // In that case we change it to a LowerCaseClass to let the
                 // compiler skip the resolving at several places in this class.
                 if (Character.isLowerCase(name.charAt(0))) {
-                  t = new LowerCaseClass(name);
+                    t = new LowerCaseClass(name);
                 }
                 isClass = resolve(t);
-                if(!isClass) {
-                    isClass = resolveToNestedOfCurrentClassAndSuperClasses(t);
-                }
             }
             if (isClass) {
                 // the name is a type so remove it from the scoping
@@ -1163,34 +1142,23 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
                 for (VariableScope scope = currentScope; scope != null && !scope.isRoot(); scope = scope.getParent()) {
                     if (scope.removeReferencedClassVariable(ve.getName()) == null) break;
                 }
-                ClassExpression ce = new ClassExpression(t);
-                ce.setSourcePosition(ve);
-                return ce;
+                return new ClassExpression(t);
             }
         }
         resolveOrFail(ve.getType(), ve);
         ClassNode origin = ve.getOriginType();
-        if (origin!=ve.getType()) resolveOrFail(origin, ve);
+        if (origin != ve.getType()) resolveOrFail(origin, ve);
         return ve;
     }
 
-    private static boolean testVanillaNameForClass(String name) {
-        if (name==null || name.length()==0) return false;
+    private static boolean testVanillaNameForClass(final String name) {
+        if (name == null || name.length() == 0) return false;
         return !Character.isLowerCase(name.charAt(0));
     }
 
-    private static boolean isLeftSquareBracket(int op) {
-        return op == Types.ARRAY_EXPRESSION
-                || op == Types.LEFT_SQUARE_BRACKET
-                || op == Types.SYNTH_LIST
-                || op == Types.SYNTH_MAP;
-    }
-
-    protected Expression transformBinaryExpression(BinaryExpression be) {
+    protected Expression transformBinaryExpression(final BinaryExpression be) {
         Expression left = transform(be.getLeftExpression());
-        int type = be.getOperation().getType();
-        if ((type == Types.ASSIGNMENT_OPERATOR || type == Types.EQUAL) &&
-                left instanceof ClassExpression) {
+        if (be.getOperation().isA(Types.ASSIGNMENT_OPERATOR) && left instanceof ClassExpression) {
             ClassExpression ce = (ClassExpression) left;
             String error = "you tried to assign a value to the class '" + ce.getType().getName() + "'";
             if (ce.getType().isScript()) {
@@ -1199,34 +1167,30 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
             addError(error, be.getLeftExpression());
             return be;
         }
-        if (left instanceof ClassExpression && isLeftSquareBracket(type)) {
+        if (left instanceof ClassExpression && be.getOperation().isOneOf(
+                new int[]{Types.ARRAY_EXPRESSION, Types.SYNTH_LIST, Types.SYNTH_MAP})) {
             if (be.getRightExpression() instanceof ListExpression) {
                 ListExpression list = (ListExpression) be.getRightExpression();
                 if (list.getExpressions().isEmpty()) {
-                    // we have C[] if the list is empty -> should be an array then!
-                    final ClassExpression ce = new ClassExpression(left.getType().makeArray());
-                    ce.setSourcePosition(be);
-                    return ce;
-                }
-                else {
+                    return new ClassExpression(left.getType().makeArray());
+                } else {
                     // maybe we have C[k1:v1, k2:v2] -> should become (C)([k1:v1, k2:v2])
                     boolean map = true;
                     for (Expression expression : list.getExpressions()) {
-                        if(!(expression instanceof MapEntryExpression)) {
+                        if (!(expression instanceof MapEntryExpression)) {
                             map = false;
                             break;
                         }
                     }
 
                     if (map) {
-                        final MapExpression me = new MapExpression();
+                        MapExpression me = new MapExpression();
                         for (Expression expression : list.getExpressions()) {
                             me.addMapEntryExpression((MapEntryExpression) transform(expression));
                         }
                         me.setSourcePosition(list);
-                        final CastExpression ce = new CastExpression(left.getType(), me);
+                        CastExpression ce = new CastExpression(left.getType(), me);
                         ce.setCoerce(true);
-                        ce.setSourcePosition(be);
                         return ce;
                     }
                 }
@@ -1236,18 +1200,15 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
                 Expression right = transform(mapExpression.getExpression());
                 CastExpression ce = new CastExpression(left.getType(), right);
                 ce.setCoerce(true);
-                ce.setSourcePosition(be);
                 return ce;
             }
 
             if (be.getRightExpression() instanceof MapEntryExpression) {
                 // may be we have C[k1:v1] -> should become (C)([k1:v1])
-                final MapExpression me = new MapExpression();
+                MapExpression me = new MapExpression();
                 me.addMapEntryExpression((MapEntryExpression) transform(be.getRightExpression()));
                 me.setSourcePosition(be.getRightExpression());
-                final CastExpression ce = new CastExpression(left.getType(), me);
-                ce.setSourcePosition(be);
-                return ce;
+                return new CastExpression(left.getType(), me);
             }
         }
         Expression right = transform(be.getRightExpression());
@@ -1256,7 +1217,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         return be;
     }
 
-    protected Expression transformClosureExpression(ClosureExpression ce) {
+    protected Expression transformClosureExpression(final ClosureExpression ce) {
         boolean oldInClosure = inClosure;
         inClosure = true;
         for (Parameter para : getParametersSafe(ce)) {
@@ -1275,7 +1236,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         return ce;
     }
 
-    protected Expression transformConstructorCallExpression(ConstructorCallExpression cce) {
+    protected Expression transformConstructorCallExpression(final ConstructorCallExpression cce) {
         findPossibleOuterClassNodeForNonStaticInnerClassInstantiation(cce);
 
         ClassNode type = cce.getType();
@@ -1287,7 +1248,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         return cce.transformExpression(this);
     }
 
-    private void findPossibleOuterClassNodeForNonStaticInnerClassInstantiation(ConstructorCallExpression cce) {
+    private void findPossibleOuterClassNodeForNonStaticInnerClassInstantiation(final ConstructorCallExpression cce) {
         // GROOVY-8947: Fail to resolve non-static inner class outside of outer class
         // `new Computer().new Cpu(4)` will be parsed to `new Cpu(new Computer(), 4)`
         // so non-static inner class instantiation expression's first argument is a constructor call of outer class
@@ -1309,28 +1270,27 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         }
     }
 
-    private static String getDescription(ClassNode node) {
+    private static String getDescription(final ClassNode node) {
         return (node.isInterface() ? "interface" : "class") + " '" + node.getName() + "'";
     }
 
-    protected Expression transformMethodCallExpression(MethodCallExpression mce) {
+    protected Expression transformMethodCallExpression(final MethodCallExpression mce) {
         Expression args = transform(mce.getArguments());
         Expression method = transform(mce.getMethod());
         Expression object = transform(mce.getObjectExpression());
 
         resolveGenericsTypes(mce.getGenericsTypes());
 
-        MethodCallExpression result = new MethodCallExpression(object, method, args);
-        result.setSafe(mce.isSafe());
-        result.setImplicitThis(mce.isImplicitThis());
-        result.setSpreadSafe(mce.isSpreadSafe());
-        result.setSourcePosition(mce);
-        result.setGenericsTypes(mce.getGenericsTypes());
-        result.setMethodTarget(mce.getMethodTarget());
-        return result;
+        MethodCallExpression ret = new MethodCallExpression(object, method, args);
+        ret.setGenericsTypes(mce.getGenericsTypes());
+        ret.setMethodTarget(mce.getMethodTarget());
+        ret.setImplicitThis(mce.isImplicitThis());
+        ret.setSpreadSafe(mce.isSpreadSafe());
+        ret.setSafe(mce.isSafe());
+        return ret;
     }
 
-    protected Expression transformDeclarationExpression(DeclarationExpression de) {
+    protected Expression transformDeclarationExpression(final DeclarationExpression de) {
         visitAnnotations(de);
         Expression oldLeft = de.getLeftExpression();
         checkingVariableTypeInDeclaration = true;
@@ -1348,20 +1308,20 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         }
         DeclarationExpression newDeclExpr = new DeclarationExpression(left, de.getOperation(), right);
         newDeclExpr.setDeclaringClass(de.getDeclaringClass());
-        fixDeclaringClass(newDeclExpr);
-        newDeclExpr.setSourcePosition(de);
         newDeclExpr.addAnnotations(de.getAnnotations());
+        newDeclExpr.copyNodeMetaData(de);
+        fixDeclaringClass(newDeclExpr);
         return newDeclExpr;
     }
 
-    // TODO get normal resolving to set declaring class
-    private void fixDeclaringClass(DeclarationExpression newDeclExpr) {
+    // TODO: get normal resolving to set declaring class
+    private void fixDeclaringClass(final DeclarationExpression newDeclExpr) {
         if (newDeclExpr.getDeclaringClass() == null && currentMethod != null) {
             newDeclExpr.setDeclaringClass(currentMethod.getDeclaringClass());
         }
     }
 
-    protected Expression transformAnnotationConstantExpression(AnnotationConstantExpression ace) {
+    protected Expression transformAnnotationConstantExpression(final AnnotationConstantExpression ace) {
         AnnotationNode an = (AnnotationNode) ace.getValue();
         ClassNode type = an.getClassNode();
         resolveOrFail(type, " for annotation", an);
@@ -1371,10 +1331,11 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         return ace;
     }
 
-    public void visitAnnotations(AnnotatedNode node) {
+    @Override
+    public void visitAnnotations(final AnnotatedNode node) {
         List<AnnotationNode> annotations = node.getAnnotations();
         if (annotations.isEmpty()) return;
-        Map<String, AnnotationNode> tmpAnnotations = new HashMap<String, AnnotationNode>();
+        Map<String, AnnotationNode> tmpAnnotations = new HashMap<>();
         for (AnnotationNode an : annotations) {
             // skip built-in properties
             if (an.isBuiltIn()) continue;
@@ -1400,7 +1361,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         }
     }
 
-    private boolean isRepeatable(Class<?> annTypeClass) {
+    private boolean isRepeatable(final Class<?> annTypeClass) {
         Annotation[] annTypeAnnotations = annTypeClass.getAnnotations();
         for (Annotation annTypeAnnotation : annTypeAnnotations) {
             if (annTypeAnnotation.annotationType().getName().equals("java.lang.annotation.Repeatable")) {
@@ -1428,7 +1389,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         return exp;
     }
 
-    private void checkAnnotationMemberValue(Expression newValue) {
+    private void checkAnnotationMemberValue(final Expression newValue) {
         if (newValue instanceof PropertyExpression) {
             PropertyExpression pe = (PropertyExpression) newValue;
             if (!(pe.getObjectExpression() instanceof ClassExpression)) {
@@ -1442,14 +1403,15 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         }
     }
 
-    public void visitClass(ClassNode node) {
+    @Override
+    public void visitClass(final ClassNode node) {
         ClassNode oldNode = currentClass;
 
         currentClass = node;
 
         if (node instanceof InnerClassNode) {
             if (Modifier.isStatic(node.getModifiers())) {
-                genericParameterNames = new HashMap<GenericsTypeName, GenericsType>();
+                genericParameterNames = new HashMap<>();
             }
 
             InnerClassNode innerClassNode = (InnerClassNode) node;
@@ -1460,7 +1422,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
                 }
             }
         } else {
-            genericParameterNames = new HashMap<GenericsTypeName, GenericsType>();
+            genericParameterNames = new HashMap<>();
         }
 
         resolveGenericsHeader(node.getGenericsTypes());
@@ -1521,7 +1483,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
     }
 
     // GROOVY-7812(#2): Static inner classes cannot be accessed from other files when running by 'groovy' command
-    private void resolveOuterNestedClassFurther(ClassNode node) {
+    private void resolveOuterNestedClassFurther(final ClassNode node) {
         CompileUnit compileUnit = currentClass.getCompileUnit();
 
         if (null == compileUnit) return;
@@ -1551,41 +1513,42 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         }
     }
 
-    private void checkCyclicInheritance(ClassNode originalNode, ClassNode parentToCompare, ClassNode[] interfacesToCompare) {
-        if(!originalNode.isInterface()) {
-            if(parentToCompare == null) return;
-            if(originalNode == parentToCompare.redirect()) {
+    private void checkCyclicInheritance(final ClassNode originalNode, final ClassNode parentToCompare, final ClassNode[] interfacesToCompare) {
+        if (!originalNode.isInterface()) {
+            if (parentToCompare == null) return;
+            if (originalNode == parentToCompare.redirect()) {
                 addError("Cyclic inheritance involving " + parentToCompare.getName() + " in class " + originalNode.getName(), originalNode);
                 return;
             }
-            if(interfacesToCompare != null && interfacesToCompare.length > 0) {
-                for(ClassNode intfToCompare : interfacesToCompare) {
-                    if(originalNode == intfToCompare.redirect()) {
+            if (interfacesToCompare != null && interfacesToCompare.length > 0) {
+                for (ClassNode intfToCompare : interfacesToCompare) {
+                    if (originalNode == intfToCompare.redirect()) {
                         addError("Cycle detected: the type " + originalNode.getName() + " cannot implement itself" , originalNode);
                         return;
                     }
                 }
             }
-            if(parentToCompare == ClassHelper.OBJECT_TYPE) return;
+            if (parentToCompare == ClassHelper.OBJECT_TYPE) return;
             checkCyclicInheritance(originalNode, parentToCompare.getUnresolvedSuperClass(), null);
         } else {
-            if(interfacesToCompare != null && interfacesToCompare.length > 0) {
+            if (interfacesToCompare != null && interfacesToCompare.length > 0) {
                 // check interfaces at this level first
-                for(ClassNode intfToCompare : interfacesToCompare) {
+                for (ClassNode intfToCompare : interfacesToCompare) {
                     if(originalNode == intfToCompare.redirect()) {
                         addError("Cyclic inheritance involving " + intfToCompare.getName() + " in interface " + originalNode.getName(), originalNode);
                         return;
                     }
                 }
                 // check next level of interfaces
-                for(ClassNode intf : interfacesToCompare) {
+                for (ClassNode intf : interfacesToCompare) {
                     checkCyclicInheritance(originalNode, null, intf.getInterfaces());
                 }
             }
         }
     }
 
-    public void visitCatchStatement(CatchStatement cs) {
+    @Override
+    public void visitCatchStatement(final CatchStatement cs) {
         resolveOrFail(cs.getExceptionType(), cs);
         if (cs.getExceptionType() == ClassHelper.DYNAMIC_TYPE) {
             cs.getVariable().setType(ClassHelper.make(Exception.class));
@@ -1593,23 +1556,21 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         super.visitCatchStatement(cs);
     }
 
-    public void visitForLoop(ForStatement forLoop) {
+    @Override
+    public void visitForLoop(final ForStatement forLoop) {
         resolveOrFail(forLoop.getVariableType(), forLoop);
         super.visitForLoop(forLoop);
     }
 
-    public void visitBlockStatement(BlockStatement block) {
+    @Override
+    public void visitBlockStatement(final BlockStatement block) {
         VariableScope oldScope = currentScope;
         currentScope = block.getVariableScope();
         super.visitBlockStatement(block);
         currentScope = oldScope;
     }
 
-    protected SourceUnit getSourceUnit() {
-        return source;
-    }
-
-    private boolean resolveGenericsTypes(GenericsType[] types) {
+    private boolean resolveGenericsTypes(final GenericsType[] types) {
         if (types == null) return true;
         currentClass.setUsingGenerics(true);
         boolean resolved = true;
@@ -1620,11 +1581,11 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         return resolved;
     }
 
-    private void resolveGenericsHeader(GenericsType[] types) {
+    private void resolveGenericsHeader(final GenericsType[] types) {
         resolveGenericsHeader(types, null, 0);
     }
 
-    private void resolveGenericsHeader(GenericsType[] types, GenericsType rootType, int level) {
+    private void resolveGenericsHeader(final GenericsType[] types, final GenericsType rootType, final int level) {
         if (types == null) return;
         currentClass.setUsingGenerics(true);
         List<Tuple2<ClassNode, GenericsType>> upperBoundsWithGenerics = new LinkedList<>();
@@ -1654,11 +1615,11 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
                             }
                         }
 
-                        upperBoundsToResolve.add(new Tuple2<>(upperBound, classNode));
+                        upperBoundsToResolve.add(tuple(upperBound, classNode));
                     }
 
                     if (upperBound != null && upperBound.isUsingGenerics()) {
-                        upperBoundsWithGenerics.add(new Tuple2<>(upperBound, type));
+                        upperBoundsWithGenerics.add(tuple(upperBound, type));
                     }
                 }
             } else {
@@ -1691,7 +1652,7 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
         }
     }
 
-    private boolean resolveGenericsType(GenericsType genericsType) {
+    private boolean resolveGenericsType(final GenericsType genericsType) {
         if (genericsType.isResolved()) return true;
         currentClass.setUsingGenerics(true);
         ClassNode type = genericsType.getType();
@@ -1727,15 +1688,10 @@ public class ResolveVisitor extends ClassCodeExpressionTransformer {
 
     }
 
-    public void setClassNodeResolver(ClassNodeResolver classNodeResolver) {
-        this.classNodeResolver = classNodeResolver;
-    }
-
-    private static Map<String, ClassNode> findHierClasses(ClassNode currentClass) {
-        Map<String, ClassNode> hierClasses = new LinkedHashMap<String, ClassNode>();
-        for(ClassNode classToCheck = currentClass; classToCheck != ClassHelper.OBJECT_TYPE;
-            classToCheck = classToCheck.getSuperClass()) {
-            if(classToCheck == null || hierClasses.containsKey(classToCheck.getName())) break;
+    private static Map<String, ClassNode> findHierClasses(final ClassNode currentClass) {
+        Map<String, ClassNode> hierClasses = new LinkedHashMap<>();
+        for (ClassNode classToCheck = currentClass; classToCheck != ClassHelper.OBJECT_TYPE; classToCheck = classToCheck.getSuperClass()) {
+            if (classToCheck == null || hierClasses.containsKey(classToCheck.getName())) break;
             hierClasses.put(classToCheck.getName(), classToCheck);
         }
         return hierClasses;

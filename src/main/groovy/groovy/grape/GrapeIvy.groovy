@@ -19,12 +19,12 @@
 package groovy.grape
 
 import groovy.transform.CompileStatic
+import groovy.transform.NamedParam
+import groovy.transform.NamedParams
 import org.apache.groovy.plugin.GroovyRunner
 import org.apache.groovy.plugin.GroovyRunnerRegistry
 import org.apache.ivy.Ivy
 import org.apache.ivy.core.IvyContext
-import org.apache.ivy.core.cache.ResolutionCacheManager
-import org.apache.ivy.core.event.IvyListener
 import org.apache.ivy.core.event.download.PrepareDownloadEvent
 import org.apache.ivy.core.event.resolve.StartResolveEvent
 import org.apache.ivy.core.module.descriptor.Configuration
@@ -52,7 +52,6 @@ import org.codehaus.groovy.reflection.ReflectionUtils
 import org.codehaus.groovy.runtime.m12n.ExtensionModuleScanner
 import org.codehaus.groovy.runtime.metaclass.MetaClassRegistryImpl
 
-import javax.xml.parsers.DocumentBuilderFactory
 import java.util.jar.JarFile
 import java.util.regex.Pattern
 import java.util.zip.ZipEntry
@@ -86,7 +85,6 @@ class GrapeIvy implements GrapeEngine {
     // we keep the settings so that addResolver can add to the resolver chain
     IvySettings settings
 
-    @SuppressWarnings('Instanceof')
     GrapeIvy() {
         // if we are already initialized, quit
         if (enableGrapes) return
@@ -94,6 +92,7 @@ class GrapeIvy implements GrapeEngine {
         // start ivy
         Message.defaultLogger = new DefaultMessageLogger(System.getProperty('ivy.message.logger.level', '-1') as int)
         settings = new IvySettings()
+        settings.setVariable('user.home.url', new File(System.getProperty('user.home')).toURI().toURL() as String)
 
         // configure settings
         def grapeConfig = localGrapeConfig
@@ -104,9 +103,8 @@ class GrapeIvy implements GrapeEngine {
             settings.load(grapeConfig) // exploit multi-methods for convenience
         } catch (java.text.ParseException ex) {
             def configLocation = grapeConfig instanceof File ? grapeConfig.canonicalPath : grapeConfig.toString()
-            System.err.println "Local Ivy config file '$configLocation' appears corrupt - ignoring it and using default config instead\nError was: " + ex.message
-            grapeConfig = GrapeIvy.getResource('defaultGrapeConfig.xml')
-            settings.load(grapeConfig)
+            System.err.println "Local Ivy config file '$configLocation' appears corrupt - ignoring it and using default config instead\nError was: ${ex.message}"
+            settings.load(GrapeIvy.getResource('defaultGrapeConfig.xml'))
         }
 
         // set up the cache dirs
@@ -418,43 +416,45 @@ class GrapeIvy implements GrapeEngine {
     }
 
     ResolveReport getDependencies(Map args, IvyGrabRecord... grabRecords) {
-        ResolutionCacheManager cacheManager = ivyInstance.resolutionCacheManager
-
+        def cacheManager = ivyInstance.resolutionCacheManager
         def millis = System.currentTimeMillis()
-        def md = new DefaultModuleDescriptor(ModuleRevisionId
-                .newInstance('caller', 'all-caller', 'working' + millis.toString()[-2..-1]), 'integration', null, true)
+        def md = new DefaultModuleDescriptor(ModuleRevisionId.newInstance('caller', 'all-caller', 'working' + millis.toString()[-2..-1]), 'integration', null, true)
         md.addConfiguration(new Configuration('default'))
         md.lastModified = millis
 
         addExcludesIfNeeded(args, md)
 
         for (IvyGrabRecord grabRecord : grabRecords) {
-            def conf = grabRecord.conf ?: ['*']
+            def confs = grabRecord.conf ?: ['*']
             DefaultDependencyDescriptor dd = (DefaultDependencyDescriptor) md.dependencies.find {
-                it.dependencyRevisionId.equals(grabRecord.mrid)
+                it.dependencyRevisionId == grabRecord.mrid
             }
-            if (dd) {
-                addDependencyArtifactDescriptor(dd, grabRecord, conf)
-            } else {
-                dd = new DefaultDependencyDescriptor(md, grabRecord.mrid, grabRecord.force,
-                        grabRecord.changing, grabRecord.transitive)
-                conf.each { dd.addDependencyConfiguration('default', it) }
-                addDependencyArtifactDescriptor(dd, grabRecord, conf)
+            if (!dd) {
+                dd = new DefaultDependencyDescriptor(md, grabRecord.mrid, grabRecord.force, grabRecord.changing, grabRecord.transitive)
+                confs.each { conf -> dd.addDependencyConfiguration('default', conf) }
                 md.addDependency(dd)
+            }
+
+            if (grabRecord.classifier != null
+                    || (grabRecord.ext != null && grabRecord.ext != 'jar')
+                    || (grabRecord.type != null && grabRecord.type != 'jar')) {
+                // add artifact descriptor to dependency descriptor
+                def dad = new DefaultDependencyArtifactDescriptor(dd, grabRecord.mrid.name, grabRecord.type ?: 'jar', grabRecord.ext ?: 'jar', null, grabRecord.classifier ? [classifier: grabRecord.classifier] : null)
+                confs.each { conf -> dd.addDependencyArtifact(conf, dad) }
             }
         }
 
         // resolve grab and dependencies
-        ResolveOptions resolveOptions = new ResolveOptions().tap {
-            confs = DEF_CONFIG as String[]
-            outputReport = false
-            validate = (boolean) (args.containsKey('validate') ? args.validate : false)
-        }
+        def resolveOptions = new ResolveOptions(
+            confs: DEF_CONFIG as String[],
+            outputReport: false,
+            validate: (boolean) (args.containsKey('validate') ? args.validate : false)
+        )
         ivyInstance.settings.defaultResolver = args.autoDownload ? 'downloadGrapes' : 'cachedGrapes'
         if (args.disableChecksums) {
             ivyInstance.settings.setVariable('ivy.checksums', '')
         }
-        boolean reportDownloads = System.getProperty('groovy.grape.report.downloads', 'false') == 'true'
+        boolean reportDownloads = Boolean.getBoolean('groovy.grape.report.downloads')
         if (reportDownloads) {
             addIvyListener()
         }
@@ -493,39 +493,27 @@ class GrapeIvy implements GrapeEngine {
     }
 
     private addIvyListener() {
-        ivyInstance.eventManager.addIvyListener([progress: { ivyEvent ->
+        ivyInstance.eventManager.addIvyListener { ivyEvent ->
             switch (ivyEvent) {
-                case StartResolveEvent:
-                    ivyEvent.moduleDescriptor.dependencies.each { it ->
-                        def name = it.toString()
-                        if (!resolvedDependencies.contains(name)) {
-                            resolvedDependencies << name
-                            System.err.println "Resolving $name"
-                        }
+            case StartResolveEvent:
+                ivyEvent.moduleDescriptor.dependencies.each {
+                    def name = it.toString()
+                    if (!resolvedDependencies.contains(name)) {
+                        resolvedDependencies << name
+                        System.err.println "Resolving $name"
                     }
-                    break
-                case PrepareDownloadEvent:
-                    ivyEvent.artifacts.each { it ->
-                        def name = it.toString()
-                        if (!downloadedArtifacts.contains(name)) {
-                            downloadedArtifacts << name
-                            System.err.println "Preparing to download artifact $name"
-                        }
+                }
+                break
+            case PrepareDownloadEvent:
+                ivyEvent.artifacts.each {
+                    def name = it.toString()
+                    if (!downloadedArtifacts.contains(name)) {
+                        downloadedArtifacts << name
+                        System.err.println "Preparing to download artifact $name"
                     }
-                    break
+                }
+                break
             }
-        }] as IvyListener)
-    }
-
-    @CompileStatic
-    private void addDependencyArtifactDescriptor(DefaultDependencyDescriptor dd, IvyGrabRecord grabRecord, List<String> conf) {
-        // TODO: find out "unknown" reason and change comment below - also, confirm conf[0] check vs conf.contains('optional')
-        if (conf[0] != 'optional' || grabRecord.classifier) {
-            // for some unknown reason optional dependencies should not have an artifactDescriptor
-            def dad = new DefaultDependencyArtifactDescriptor(dd,
-                    grabRecord.mrid.name, grabRecord.type ?: 'jar', grabRecord.ext ?: 'jar', null, grabRecord.classifier ? [classifier: grabRecord.classifier] : null)
-            conf.each { dad.addConfiguration(it) }
-            dd.addDependencyArtifact('default', dad)
         }
     }
 
@@ -540,8 +528,7 @@ class GrapeIvy implements GrapeEngine {
                         // TODO handle other types? e.g. 'dlls'
                         def jardir = new File(moduleDir, 'jars')
                         if (!jardir.exists()) return
-                        def dbf = DocumentBuilderFactory.newInstance()
-                        def db = dbf.newDocumentBuilder()
+                        def db = javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder()
                         def root = db.parse(ivyFile).documentElement
                         def publis = root.getElementsByTagName('publications')
                         for (int i = 0; i < publis.length; i++) {
@@ -744,16 +731,20 @@ class GrapeIvy implements GrapeEngine {
 
     @Override
     @CompileStatic
-    void addResolver(Map<String, Object> args) {
-        ChainResolver chainResolver = (ChainResolver) settings.getResolver('downloadGrapes')
+    void addResolver(@NamedParams([
+        @NamedParam(value='name', type=String, required=true),
+        @NamedParam(value='root', type=String, required=true),
+        @NamedParam(value='m2Compatible', type=Boolean, required=false)
+    ]) Map<String, Object> args) {
+        def resolver = new IBiblioResolver(
+            name: (String) args.name,
+            root: (String) args.root,
+            m2compatible: (boolean) args.getOrDefault('m2Compatible', Boolean.TRUE),
+            settings: (ResolverSettings) settings
+        )
 
-        IBiblioResolver resolver = new IBiblioResolver(
-                name: (String) args.name,
-                root: (String) args.root,
-                m2compatible: (boolean) (args.m2Compatible ?: true),
-                settings: (ResolverSettings) settings)
-
-        chainResolver.add(resolver)
+        def chainResolver = (ChainResolver) settings.getResolver('downloadGrapes')
+        chainResolver.resolvers.add(0, resolver)
 
         ivyInstance = Ivy.newInstance(settings)
         resolvedDependencies = []
@@ -784,20 +775,16 @@ class IvyGrabRecord {
     }
 
     @Override
-    boolean equals(Object obj) {
-        if (null == obj || obj.class != IvyGrabRecord) {
-            return false
+    boolean equals(Object that) {
+        if (that instanceof IvyGrabRecord) {
+            return (this.mrid == that.mrid)
+                && (this.conf == that.conf)
+                && (this.changing == that.changing)
+                && (this.transitive == that.transitive)
+                && (this.force == that.force)
+                && (this.classifier == that.classifier)
+                && (this.ext == that.ext)
+                && (this.type == that.type)
         }
-
-        IvyGrabRecord o = (IvyGrabRecord) obj
-
-        ((changing == o.changing)
-                && (transitive == o.transitive)
-                && (force == o.force)
-                && (mrid == o.mrid)
-                && (conf == o.conf)
-                && (classifier == o.classifier)
-                && (ext == o.ext)
-                && (type == o.type))
     }
 }

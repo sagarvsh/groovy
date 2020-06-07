@@ -17,22 +17,22 @@
  *  under the License.
  */
 dependencies {
-    compile('javax.servlet:javax.servlet-api:3.0.1') { dep ->
+    api('javax.servlet:javax.servlet-api:3.0.1') { dep ->
         provided dep
     }
-    compile('javax.servlet:jsp-api:2.0') { dep ->
+    api('javax.servlet:jsp-api:2.0') { dep ->
         provided dep
         exclude(group: 'javax.servlet', module: 'servlet-api')
     }
-    testCompile "jmock:jmock:$jmockVersion"
 
-    compile rootProject
+    api rootProject  // ServletBinding extends Binding...
     // needed for MarkupBuilder
-    compile project(':groovy-xml')
+    implementation project(':groovy-xml')
     // needed by TemplateServlet
-    compile project(':groovy-templates')
+    implementation project(':groovy-templates')
 
-    testCompile rootProject.sourceSets.test.runtimeClasspath
-    testCompile project(':groovy-json')
-    testCompile project(':groovy-test')
+    testImplementation "jmock:jmock:$jmockVersion"
+    testImplementation rootProject.sourceSets.test.runtimeClasspath
+    testImplementation project(':groovy-json')
+    testImplementation project(':groovy-test')
 }

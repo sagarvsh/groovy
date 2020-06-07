@@ -77,13 +77,12 @@ import org.codehaus.groovy.runtime.wrappers.Wrapper;
 import org.codehaus.groovy.util.ComplexKeyHashMap;
 import org.codehaus.groovy.util.FastArray;
 import org.codehaus.groovy.util.SingleKeyHashMap;
+import org.codehaus.groovy.vmplugin.VMPlugin;
 import org.codehaus.groovy.vmplugin.VMPluginFactory;
 
 import javax.annotation.Nullable;
-
 import java.beans.BeanInfo;
 import java.beans.EventSetDescriptor;
-import java.beans.IntrospectionException;
 import java.beans.Introspector;
 import java.beans.PropertyDescriptor;
 import java.lang.reflect.Array;
@@ -111,6 +110,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
+import static org.apache.groovy.util.Arrays.concat;
 import static org.codehaus.groovy.ast.tools.GeneralUtils.inSamePackage;
 import static org.codehaus.groovy.reflection.ReflectionCache.isAssignableFrom;
 
@@ -139,6 +139,7 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
     private static final MetaMethod AMBIGUOUS_LISTENER_METHOD = new DummyMetaMethod();
     private static final Comparator<CachedClass> CACHED_CLASS_NAME_COMPARATOR = Comparator.comparing(CachedClass::getName);
     private static final boolean PERMISSIVE_PROPERTY_ACCESS = SystemUtil.getBooleanSafe("groovy.permissive.property.access");
+    private static final VMPlugin VM_PLUGIN = VMPluginFactory.getPlugin();
 
     protected final Class theClass;
     protected final CachedClass theCachedClass;
@@ -148,12 +149,12 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
 
     private final Index classPropertyIndex = new MethodIndex();
     private final SingleKeyHashMap staticPropertyIndex = new SingleKeyHashMap();
-    private final Map<String, MetaMethod> listeners = new HashMap<String, MetaMethod>();
-    private final List<MetaMethod> allMethods = new ArrayList<MetaMethod>();
+    private final Map<String, MetaMethod> listeners = new HashMap<>();
+    private final List<MetaMethod> allMethods = new ArrayList<>();
     // we only need one of these that can be reused over and over.
     private final MetaProperty arrayLengthProperty = new MetaArrayLengthProperty();
     private final Index classPropertyIndexForSuper = new MethodIndex();
-    private final Set<MetaMethod> newGroovyMethodsSet = new HashSet<MetaMethod>();
+    private final Set<MetaMethod> newGroovyMethodsSet = new HashSet<>();
     private final MetaMethod[] myNewMetaMethods;
     private final MetaMethod[] additionalMetaMethods;
 
@@ -186,11 +187,8 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
         this.registry = GroovySystem.getMetaClassRegistry();
         metaMethodIndex = new MetaMethodIndex(theCachedClass);
         final MetaMethod[] metaMethods = theCachedClass.getNewMetaMethods();
-        if (add != null && !(add.length == 0)) {
-            List<MetaMethod> arr = new ArrayList<MetaMethod>();
-            arr.addAll(Arrays.asList(metaMethods));
-            arr.addAll(Arrays.asList(add));
-            myNewMetaMethods = arr.toArray(MetaMethod.EMPTY_ARRAY);
+        if (add != null && add.length != 0) {
+            myNewMetaMethods = concat(metaMethods, add);
             additionalMetaMethods = metaMethods;
         } else {
             myNewMetaMethods = metaMethods;
@@ -214,7 +212,7 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
      * @param theClass The class
      * @param add      The methods
      */
-    public MetaClassImpl(MetaClassRegistry registry, final Class theClass, MetaMethod add[]) {
+    public MetaClassImpl(MetaClassRegistry registry, final Class theClass, MetaMethod[] add) {
         this(theClass, add);
         this.registry = registry;
         this.constructors = new FastArray(theCachedClass.getConstructors());
@@ -267,9 +265,8 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
         final Object o = getMethods(getTheClass(), name, false);
         if (o instanceof FastArray) {
             return ((FastArray) o).toList();
-        } else {
-            return Collections.singletonList(o);
         }
+        return Collections.singletonList(o);
     }
 
     /**
@@ -439,7 +436,7 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
     }
 
     protected LinkedList<CachedClass> getSuperClasses() {
-        LinkedList<CachedClass> superClasses = new LinkedList<CachedClass>();
+        LinkedList<CachedClass> superClasses = new LinkedList<>();
 
         if (theClass.isInterface()) {
             superClasses.addFirst(ReflectionCache.OBJECT_CLASS);
@@ -566,9 +563,9 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
             }
 
             private String[] decomposeMopName(final String mopName) {
-                int idx = mopName.indexOf("$");
+                int idx = mopName.indexOf('$');
                 if (idx > 0) {
-                    int eidx = mopName.indexOf("$", idx + 1);
+                    int eidx = mopName.indexOf('$', idx + 1);
                     if (eidx > 0) {
                         return new String[]{
                                 mopName.substring(0, idx + 1),
@@ -623,7 +620,7 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
     private void inheritInterfaceNewMetaMethods(Set<CachedClass> interfaces) {
         // add methods declared by DGM for interfaces
         for (CachedClass cls : interfaces) {
-            MetaMethod methods[] = getNewMetaMethods(cls);
+            MetaMethod[] methods = getNewMetaMethods(cls);
             for (MetaMethod method : methods) {
                 boolean skip = false;
                 // skip DGM methods on an interface if the class already has the method
@@ -723,8 +720,8 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
                 } else {
                     arr = ((FastArray) answer).copy();
                 }
-                for (Iterator iter = used.iterator(); iter.hasNext(); ) {
-                    MetaMethod element = (MetaMethod) iter.next();
+                for (Object o : used) {
+                    MetaMethod element = (MetaMethod) o;
                     if (!element.getDeclaringClass().getTheClass().isAssignableFrom(sender))
                         continue;
                     filterMatchingMethodForCategory(arr, element);
@@ -817,9 +814,8 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
         }
         if (arguments instanceof Object[]) {
             return invokeMethod(object, methodName, (Object[]) arguments);
-        } else {
-            return invokeMethod(object, methodName, new Object[]{arguments});
         }
+        return invokeMethod(object, methodName, new Object[]{arguments});
     }
 
     /**
@@ -853,9 +849,8 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
                 if (!isGetter) {
                     property.setProperty(instance, optionalValue);
                     return null;
-                } else {
-                    return property.getProperty(instance);
                 }
+                return property.getProperty(instance);
             }
             superClass = superClass.getCachedSuperClass();
         }
@@ -899,13 +894,13 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
 
         if (instance instanceof Class && theClass != Class.class) {
             final MetaProperty metaProperty = InvokerHelper.getMetaClass(Class.class).hasProperty(instance, propertyName);
-            if (metaProperty != null)
+            if (metaProperty != null) {
                 if (isGetter) {
                     return metaProperty.getProperty(instance);
-                } else {
-                    metaProperty.setProperty(instance, optionalValue);
-                    return null;
                 }
+                metaProperty.setProperty(instance, optionalValue);
+                return null;
+            }
         }
         throw new MissingPropertyExceptionNoStack(propertyName, theClass);
     }
@@ -1034,11 +1029,11 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
         return invokeMethod(theClass, object, methodName, originalArguments, false, false);
     }
 
-    private Object invokeMethodClosure(Object object, String methodName, Object[] arguments) {
+    private Object invokeMethodClosure(Object object, Object[] arguments) {
         final MethodClosure mc = (MethodClosure) object;
         final Object owner = mc.getOwner();
 
-        methodName = mc.getMethod();
+        String methodName = mc.getMethod();
         final Class ownerClass = owner instanceof Class ? (Class) owner : owner.getClass();
         final MetaClass ownerMetaClass = registry.getMetaClass(ownerClass);
 
@@ -1138,7 +1133,7 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
             if (CLOSURE_CALL_METHOD.equals(methodName) || CLOSURE_DO_CALL_METHOD.equals(methodName)) {
                 final Class objectClass = object.getClass();
                 if (objectClass == MethodClosure.class) {
-                    return this.invokeMethodClosure(object, methodName, arguments);
+                    return this.invokeMethodClosure(object, arguments);
                 } else if (objectClass == CurriedClosure.class) {
                     final CurriedClosure cc = (CurriedClosure) object;
                     // change the arguments for an uncurried call
@@ -1263,7 +1258,7 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
         }
 
         if (method != null) {
-            MetaMethod transformedMetaMethod = VMPluginFactory.getPlugin().transformMetaMethod(this, method, MetaClassHelper.convertToTypeArray(arguments), MetaClassImpl.class);
+            MetaMethod transformedMetaMethod = VM_PLUGIN.transformMetaMethod(this, method);
             return transformedMetaMethod.doMethodInvoke(object, arguments);
         } else {
             return invokePropertyOrMissing(object, methodName, originalArguments, fromInsideClass, isCallToSuper);
@@ -1356,13 +1351,13 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
         // let's try use the cache to find the method
         if (!isCallToSuper && GroovyCategorySupport.hasCategoryInCurrentThread()) {
             return getMethodWithoutCaching(sender, methodName, MetaClassHelper.convertToTypeArray(arguments), isCallToSuper);
-        } else {
-            final MetaMethodIndex.Entry e = metaMethodIndex.getMethods(sender, methodName);
-            if (e == null)
-                return null;
-
-            return isCallToSuper ? getSuperMethodWithCaching(arguments, e) : getNormalMethodWithCaching(arguments, e);
         }
+        final MetaMethodIndex.Entry e = metaMethodIndex.getMethods(sender, methodName);
+        if (e == null) {
+            return null;
+        }
+
+        return isCallToSuper ? getSuperMethodWithCaching(arguments, e) : getNormalMethodWithCaching(arguments, e);
     }
 
     private static boolean sameClasses(Class[] params, Class[] arguments) {
@@ -1482,9 +1477,8 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
             e.cachedStaticMethod = cacheEntry;
 
             return cacheEntry.method;
-        } else {
-            return pickStaticMethod(methodName, MetaClassHelper.convertToTypeArray(arguments));
         }
+        return pickStaticMethod(methodName, MetaClassHelper.convertToTypeArray(arguments));
     }
 
     public MetaMethod getMethodWithoutCaching(Class sender, String methodName, Class[] arguments, boolean isCallToSuper) {
@@ -1608,14 +1602,11 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
     public int selectConstructorAndTransformArguments(int numberOfConstructors, Object[] arguments) {
         if (numberOfConstructors == -1) {
             return selectConstructorAndTransformArguments1(arguments);
-        } else {
-            // falling back to pre 2.1.9 selection algorithm
-            // in practice this branch will only be reached if the class calling this code is a Groovy class
-            // compiled with an earlier version of the Groovy compiler
-            return selectConstructorAndTransformArguments0(numberOfConstructors, arguments);
         }
-
-
+        // falling back to pre 2.1.9 selection algorithm
+        // in practice this branch will only be reached if the class calling this code is a Groovy class
+        // compiled with an earlier version of the Groovy compiler
+        return selectConstructorAndTransformArguments0(numberOfConstructors, arguments);
     }
 
     private int selectConstructorAndTransformArguments0(final int numberOfConstructors, Object[] arguments) {
@@ -1627,16 +1618,14 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
 
         CachedConstructor constructor = createCachedConstructor(arguments);
         List l = new ArrayList(constructors.toList());
-        Comparator comp = new Comparator() {
-            public int compare(Object arg0, Object arg1) {
-                CachedConstructor c0 = (CachedConstructor) arg0;
-                CachedConstructor c1 = (CachedConstructor) arg1;
-                String descriptor0 = BytecodeHelper.getMethodDescriptor(Void.TYPE, c0.getNativeParameterTypes());
-                String descriptor1 = BytecodeHelper.getMethodDescriptor(Void.TYPE, c1.getNativeParameterTypes());
-                return descriptor0.compareTo(descriptor1);
-            }
+        Comparator comp = (arg0, arg1) -> {
+            CachedConstructor c0 = (CachedConstructor) arg0;
+            CachedConstructor c1 = (CachedConstructor) arg1;
+            String descriptor0 = BytecodeHelper.getMethodDescriptor(Void.TYPE, c0.getNativeParameterTypes());
+            String descriptor1 = BytecodeHelper.getMethodDescriptor(Void.TYPE, c1.getNativeParameterTypes());
+            return descriptor0.compareTo(descriptor1);
         };
-        Collections.sort(l, comp);
+        l.sort(comp);
         int found = -1;
         for (int i = 0; i < l.size(); i++) {
             if (l.get(i) != constructor) continue;
@@ -1825,8 +1814,8 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
      */
     public void setProperties(Object bean, Map map) {
         checkInitalised();
-        for (Iterator iter = map.entrySet().iterator(); iter.hasNext(); ) {
-            Map.Entry entry = (Map.Entry) iter.next();
+        for (Object o : map.entrySet()) {
+            Map.Entry entry = (Map.Entry) o;
             String key = entry.getKey().toString();
 
             Object value = entry.getValue();
@@ -1909,22 +1898,23 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
             if (theClass != Class.class && object instanceof Class) {
                 MetaClass mc = registry.getMetaClass(Class.class);
                 return mc.getProperty(Class.class, object, name, useSuper, false);
-            } else if (object instanceof Collection) {
+            }
+            if (object instanceof Collection) {
                 return DefaultGroovyMethods.getAt((Collection) object, name);
-            } else if (object instanceof Object[]) {
+            }
+            if (object instanceof Object[]) {
                 return DefaultGroovyMethods.getAt(Arrays.asList((Object[]) object), name);
-            } else {
-                MetaMethod addListenerMethod = listeners.get(name);
-                if (addListenerMethod != null) {
-                    //TODO: one day we could try return the previously registered Closure listener for easy removal
-                    return null;
-                }
+            }
+            MetaMethod addListenerMethod = listeners.get(name);
+            if (addListenerMethod != null) {
+                //TODO: one day we could try return the previously registered Closure listener for easy removal
+                return null;
             }
         } else {
             //----------------------------------------------------------------------
             // executing the getter method
             //----------------------------------------------------------------------
-            MetaMethod transformedMetaMethod = VMPluginFactory.getPlugin().transformMetaMethod(this, method, MetaClassHelper.convertToTypeArray(arguments), MetaClassImpl.class);
+            MetaMethod transformedMetaMethod = VM_PLUGIN.transformMetaMethod(this, method);
             return transformedMetaMethod.doMethodInvoke(object, arguments);
         }
 
@@ -1933,9 +1923,8 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
         //----------------------------------------------------------------------
         if (isStatic || object instanceof Class) {
             return invokeStaticMissingProperty(object, name, null, true);
-        } else {
-            return invokeMissingProperty(object, name, null, true);
         }
+        return invokeMissingProperty(object, name, null, true);
     }
 
     public MetaProperty getEffectiveGetMetaProperty(final Class sender, final Object object, String name, final boolean useSuper) {
@@ -1986,8 +1975,10 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
         //----------------------------------------------------------------------
         // field
         //----------------------------------------------------------------------
-        if (method != null)
-            return new GetBeanMethodMetaProperty(name, method);
+        if (method != null) {
+            MetaMethod transformedMetaMethod = VM_PLUGIN.transformMetaMethod(this, method);
+            return new GetBeanMethodMetaProperty(name, transformedMetaMethod);
+        }
 
         if (mp != null) {
             return mp;
@@ -2005,15 +1996,19 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
         // check for a generic get method provided through a category
         if (!useSuper && !isStatic && GroovyCategorySupport.hasCategoryInCurrentThread()) {
             method = getCategoryMethodGetter(sender, "get", true);
-            if (method != null)
-                return new GetMethodMetaProperty(name, method);
+            if (method != null) {
+                MetaMethod transformedMetaMethod = VM_PLUGIN.transformMetaMethod(this, method);
+                return new GetMethodMetaProperty(name, transformedMetaMethod);
+            }
+
         }
 
         // the generic method is valid, if available (!=null), if static or
         // if it is not static and we do no static access
         if (genericGetMethod != null && !(!genericGetMethod.isStatic() && isStatic)) {
             method = genericGetMethod;
-            return new GetMethodMetaProperty(name, method);
+            MetaMethod transformedMetaMethod = VM_PLUGIN.transformMetaMethod(this, method);
+            return new GetMethodMetaProperty(name, transformedMetaMethod);
         }
 
         //----------------------------------------------------------------------
@@ -2031,7 +2026,8 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
                     throw new UnsupportedOperationException();
                 }
             };
-        } else if (object instanceof Collection) {
+        }
+        if (object instanceof Collection) {
             return new MetaProperty(name, Object.class) {
                 public Object getProperty(Object object) {
                     return DefaultGroovyMethods.getAt((Collection) object, name);
@@ -2041,7 +2037,8 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
                     throw new UnsupportedOperationException();
                 }
             };
-        } else if (object instanceof Object[]) {
+        }
+        if (object instanceof Object[]) {
             return new MetaProperty(name, Object.class) {
                 public Object getProperty(Object object) {
                     return DefaultGroovyMethods.getAt(Arrays.asList((Object[]) object), name);
@@ -2051,20 +2048,19 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
                     throw new UnsupportedOperationException();
                 }
             };
-        } else {
-            MetaMethod addListenerMethod = listeners.get(name);
-            if (addListenerMethod != null) {
-                //TODO: one day we could try return the previously registered Closure listener for easy removal
-                return new MetaProperty(name, Object.class) {
-                    public Object getProperty(Object object) {
-                        return null;
-                    }
+        }
+        MetaMethod addListenerMethod = listeners.get(name);
+        if (addListenerMethod != null) {
+            //TODO: one day we could try return the previously registered Closure listener for easy removal
+            return new MetaProperty(name, Object.class) {
+                public Object getProperty(Object object) {
+                    return null;
+                }
 
-                    public void setProperty(Object object, Object newValue) {
-                        throw new UnsupportedOperationException();
-                    }
-                };
-            }
+                public void setProperty(Object object, Object newValue) {
+                    throw new UnsupportedOperationException();
+                }
+            };
         }
 
         //----------------------------------------------------------------------
@@ -2080,17 +2076,16 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
                     throw new UnsupportedOperationException();
                 }
             };
-        } else {
-            return new MetaProperty(name, Object.class) {
-                public Object getProperty(Object object) {
-                    return invokeMissingProperty(object, name, null, true);
-                }
-
-                public void setProperty(Object object, Object newValue) {
-                    throw new UnsupportedOperationException();
-                }
-            };
         }
+        return new MetaProperty(name, Object.class) {
+            public Object getProperty(Object object) {
+                return invokeMissingProperty(object, name, null, true);
+            }
+
+            public void setProperty(Object object, Object newValue) {
+                throw new UnsupportedOperationException();
+            }
+        };
     }
 
     private Tuple2<MetaMethod, MetaProperty> createMetaMethodAndMetaProperty(final Class senderForMP, final Class senderForCMG, final String name, final boolean useSuper, final boolean isStatic) {
@@ -2114,14 +2109,14 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
             }
         }
 
-        return new Tuple2<MetaMethod, MetaProperty>(method, mp);
+        return new Tuple2<>(method, mp);
     }
 
     private static MetaMethod getCategoryMethodMissing(Class sender) {
         List possibleGenericMethods = GroovyCategorySupport.getCategoryMethods("methodMissing");
         if (possibleGenericMethods != null) {
-            for (Iterator iter = possibleGenericMethods.iterator(); iter.hasNext(); ) {
-                MetaMethod mmethod = (MetaMethod) iter.next();
+            for (Object possibleGenericMethod : possibleGenericMethods) {
+                MetaMethod mmethod = (MetaMethod) possibleGenericMethod;
                 if (!mmethod.getDeclaringClass().getTheClass().isAssignableFrom(sender))
                     continue;
 
@@ -2137,8 +2132,8 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
     private static MetaMethod getCategoryMethodGetter(Class sender, String name, boolean useLongVersion) {
         List possibleGenericMethods = GroovyCategorySupport.getCategoryMethods(name);
         if (possibleGenericMethods != null) {
-            for (Iterator iter = possibleGenericMethods.iterator(); iter.hasNext(); ) {
-                MetaMethod mmethod = (MetaMethod) iter.next();
+            for (Object possibleGenericMethod : possibleGenericMethods) {
+                MetaMethod mmethod = (MetaMethod) possibleGenericMethod;
                 if (!mmethod.getDeclaringClass().getTheClass().isAssignableFrom(sender))
                     continue;
 
@@ -2158,8 +2153,8 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
     private static MetaMethod getCategoryMethodSetter(Class sender, String name, boolean useLongVersion) {
         List possibleGenericMethods = GroovyCategorySupport.getCategoryMethods(name);
         if (possibleGenericMethods != null) {
-            for (Iterator iter = possibleGenericMethods.iterator(); iter.hasNext(); ) {
-                MetaMethod mmethod = (MetaMethod) iter.next();
+            for (Object possibleGenericMethod : possibleGenericMethods) {
+                MetaMethod mmethod = (MetaMethod) possibleGenericMethod;
                 if (!mmethod.getDeclaringClass().getTheClass().isAssignableFrom(sender))
                     continue;
 
@@ -2343,7 +2338,7 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
     @SuppressWarnings("unchecked")
     private void setupProperties(PropertyDescriptor[] propertyDescriptors) {
         if (theCachedClass.isInterface) {
-            LinkedList<CachedClass> superClasses = new LinkedList<CachedClass>();
+            LinkedList<CachedClass> superClasses = new LinkedList<>();
             superClasses.add(ReflectionCache.OBJECT_CLASS);
             Set interfaces = theCachedClass.getInterfaces();
 
@@ -2351,7 +2346,7 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
             // sort interfaces so that we may ensure a deterministic behaviour in case of
             // ambiguous fields (class implementing two interfaces using the same field)
             if (superInterfaces.size() > 1) {
-                Collections.sort(superInterfaces, CACHED_CLASS_NAME_COMPARATOR);
+                superInterfaces.sort(CACHED_CLASS_NAME_COMPARATOR);
             }
 
             SingleKeyHashMap iPropertyIndex = classPropertyIndex.getNotNull(theCachedClass);
@@ -2368,11 +2363,11 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
             makeStaticPropertyIndex();
         } else {
             LinkedList<CachedClass> superClasses = getSuperClasses();
-            LinkedList<CachedClass> interfaces = new LinkedList<CachedClass>(theCachedClass.getInterfaces());
+            LinkedList<CachedClass> interfaces = new LinkedList<>(theCachedClass.getInterfaces());
             // sort interfaces so that we may ensure a deterministic behaviour in case of
             // ambiguous fields (class implementing two interfaces using the same field)
             if (interfaces.size() > 1) {
-                Collections.sort(interfaces, CACHED_CLASS_NAME_COMPARATOR);
+                interfaces.sort(CACHED_CLASS_NAME_COMPARATOR);
             }
 
             // if this an Array, then add the special read-only "length" property
@@ -2476,12 +2471,12 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
     }
 
     private void inheritStaticInterfaceFields(LinkedList superClasses, Set interfaces) {
-        for (Iterator interfaceIter = interfaces.iterator(); interfaceIter.hasNext(); ) {
-            CachedClass iclass = (CachedClass) interfaceIter.next();
+        for (Object anInterface : interfaces) {
+            CachedClass iclass = (CachedClass) anInterface;
             SingleKeyHashMap iPropertyIndex = classPropertyIndex.getNotNull(iclass);
             addFields(iclass, iPropertyIndex);
-            for (Iterator classIter = superClasses.iterator(); classIter.hasNext(); ) {
-                CachedClass sclass = (CachedClass) classIter.next();
+            for (Object superClass : superClasses) {
+                CachedClass sclass = (CachedClass) superClass;
                 if (!iclass.getTheClass().isAssignableFrom(sclass.getTheClass())) continue;
                 SingleKeyHashMap sPropertyIndex = classPropertyIndex.getNotNull(sclass);
                 copyNonPrivateFields(iPropertyIndex, sPropertyIndex, null);
@@ -2551,7 +2546,7 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
         }
     }
 
-    private static final ConcurrentMap<String, String> PROP_NAMES = new ConcurrentHashMap<String, String>(1024);
+    private static final ConcurrentMap<String, String> PROP_NAMES = new ConcurrentHashMap<>(1024);
 
     private static String getPropName(String methodName) {
         return PROP_NAMES.computeIfAbsent(methodName, k -> {
@@ -2824,7 +2819,7 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
                 arguments[1] = newValue;
             }
 
-            MetaMethod transformedMetaMethod = VMPluginFactory.getPlugin().transformMetaMethod(this, method, MetaClassHelper.convertToTypeArray(arguments), MetaClassImpl.class);
+            MetaMethod transformedMetaMethod = VM_PLUGIN.transformMetaMethod(this, method);
             transformedMetaMethod.doMethodInvoke(object, arguments);
             return;
         }
@@ -3140,6 +3135,10 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
         return initialized;
     }
 
+    protected void setInitialized(boolean initialized) {
+        this.initialized = initialized;
+    }
+
     /**
      * @return {@code false}: add method
      *         {@code null} : ignore method
@@ -3170,7 +3169,7 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
             return;
         }
 
-        Object data[] = list.getArray();
+        Object[] data = list.getArray();
         for (int j = 0; j != len; ++j) {
             MetaMethod aMethod = (MetaMethod) data[j];
             Boolean match = getMatchKindForCategory(aMethod, method);
@@ -3218,7 +3217,7 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
         if (methods instanceof FastArray) {
             FastArray m = (FastArray) methods;
             final int len = m.size;
-            final Object data[] = m.getArray();
+            final Object[] data = m.getArray();
             for (int i = 0; i != len; ++i) {
                 MetaMethod method = (MetaMethod) data[i];
                 if (method.isMethod(aMethod)) {
@@ -3279,7 +3278,7 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
             Object matchingMethods = null;
 
             final int len = methods.size;
-            Object data[] = methods.getArray();
+            Object[] data = methods.getArray();
             for (int i = 0; i != len; ++i) {
                 Object method = data[i];
 
@@ -3396,7 +3395,7 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
                 // Introspection failure...
                 // May happen in Android
             }
-            initialized = true;
+            setInitialized(true);
         }
     }
 
@@ -3405,17 +3404,9 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
         //     introspect
         try {
             if (isBeanDerivative(theClass)) {
-                info = (BeanInfo) AccessController.doPrivileged(new PrivilegedExceptionAction() {
-                    public Object run() throws IntrospectionException {
-                        return Introspector.getBeanInfo(theClass, Introspector.IGNORE_ALL_BEANINFO);
-                    }
-                });
+                info = (BeanInfo) AccessController.doPrivileged((PrivilegedExceptionAction) () -> Introspector.getBeanInfo(theClass, Introspector.IGNORE_ALL_BEANINFO));
             } else {
-                info = (BeanInfo) AccessController.doPrivileged(new PrivilegedExceptionAction() {
-                    public Object run() throws IntrospectionException {
-                        return Introspector.getBeanInfo(theClass);
-                    }
-                });
+                info = (BeanInfo) AccessController.doPrivileged((PrivilegedExceptionAction) () -> Introspector.getBeanInfo(theClass));
             }
         } catch (PrivilegedActionException pae) {
             throw new GroovyRuntimeException("exception during bean introspection", pae.getException());
@@ -3474,7 +3465,7 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
      * @return A list of MetaMethods
      */
     public List<MetaMethod> getMetaMethods() {
-        return new ArrayList<MetaMethod>(newGroovyMethodsSet);
+        return new ArrayList<>(newGroovyMethodsSet);
     }
 
     protected void dropStaticMethodCache(String name) {
@@ -3915,21 +3906,15 @@ public class MetaClassImpl implements MetaClass, MutableMetaClass {
         metaMethodIndex.clearCaches();
     }
 
-    private static final SingleKeyHashMap.Copier NAME_INDEX_COPIER = new SingleKeyHashMap.Copier() {
-        public Object copy(Object value) {
-            if (value instanceof FastArray) {
-                return ((FastArray) value).copy();
-            } else {
-                return value;
-            }
+    private static final SingleKeyHashMap.Copier NAME_INDEX_COPIER = value -> {
+        if (value instanceof FastArray) {
+            return ((FastArray) value).copy();
+        } else {
+            return value;
         }
     };
 
-    private static final SingleKeyHashMap.Copier METHOD_INDEX_COPIER = new SingleKeyHashMap.Copier() {
-        public Object copy(Object value) {
-            return SingleKeyHashMap.copy(new SingleKeyHashMap(false), (SingleKeyHashMap) value, NAME_INDEX_COPIER);
-        }
-    };
+    private static final SingleKeyHashMap.Copier METHOD_INDEX_COPIER = value -> SingleKeyHashMap.copy(new SingleKeyHashMap(false), (SingleKeyHashMap) value, NAME_INDEX_COPIER);
 
     static class MethodIndex extends Index {
         public MethodIndex(boolean b) {

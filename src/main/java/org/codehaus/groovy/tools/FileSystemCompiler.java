@@ -18,7 +18,6 @@
  */
 package org.codehaus.groovy.tools;
 
-import groovy.lang.GroovyResourceLoader;
 import groovy.lang.GroovySystem;
 import org.codehaus.groovy.control.CompilationUnit;
 import org.codehaus.groovy.control.CompilerConfiguration;
@@ -38,7 +37,6 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -86,7 +84,7 @@ public class FileSystemCompiler {
      *
      * @since 2.5
      */
-    public static void displayHelp(final PrintWriter writer) {
+    public static void displayHelp(PrintWriter writer) {
         configureParser(new CompilationOptions()).usage(writer);
     }
 
@@ -104,7 +102,7 @@ public class FileSystemCompiler {
      *
      * @since 2.5
      */
-    public static void displayVersion(final PrintWriter writer) {
+    public static void displayVersion(PrintWriter writer) {
         for (String line : new VersionProvider().getVersion()) {
             writer.println(line);
         }
@@ -117,10 +115,10 @@ public class FileSystemCompiler {
             File file = new File(filename);
             if (!file.exists()) {
                 System.err.println("error: file not found: " + file);
-                ++errors;
+                errors += 1;
             } else if (!file.canRead()) {
                 System.err.println("error: file not readable: " + file);
-                ++errors;
+                errors += 1;
             }
         }
 
@@ -219,7 +217,7 @@ public class FileSystemCompiler {
         File tmpDir = null;
         // if there are any joint compilation options set stubDir if not set
         try {
-            if ((configuration.getJointCompilationOptions() != null)
+            if (configuration.getJointCompilationOptions() != null
                     && !configuration.getJointCompilationOptions().containsKey("stubDir")) {
                 tmpDir = DefaultGroovyStaticMethods.createTempDir(null, "groovy-generated-", "-java-source");
                 configuration.getJointCompilationOptions().put("stubDir", tmpDir);
@@ -301,8 +299,8 @@ public class FileSystemCompiler {
             file.delete();
         } else if (file.isDirectory()) {
             File[] files = file.listFiles();
-            for (int i = 0; i < files.length; i++) {
-                deleteRecursive(files[i]);
+            for (File value : files) {
+                deleteRecursive(value);
             }
             file.delete();
         }
@@ -326,7 +324,7 @@ public class FileSystemCompiler {
         public String[] getVersion() {
             return new String[]{
                     "Groovy compiler version " + GroovySystem.getVersion(),
-                    "Copyright 2003-2019 The Apache Software Foundation. http://groovy-lang.org/",
+                    "Copyright 2003-2020 The Apache Software Foundation. http://groovy-lang.org/",
                     "",
             };
         }
@@ -380,9 +378,6 @@ public class FileSystemCompiler {
         @Option(names = "-F", paramLabel = "<flag>", description = "Passed to javac for joint compilation")
         private List<String> flags;
 
-        @Option(names = {"--indy"}, description = "Enables compilation using invokedynamic")
-        private boolean indy;
-
         @Option(names = {"--configscript"}, paramLabel = "<script>", description = "A script for tweaking the configuration options")
         private String configScript;
 
@@ -421,15 +416,10 @@ public class FileSystemCompiler {
 
             // joint compilation parameters
             if (jointCompilation) {
-                Map<String, Object> compilerOptions = new HashMap<String, Object>();
-                compilerOptions.put("namedValues", javacOptionsList());
-                compilerOptions.put("flags", flagsWithParameterMetaData());
+                Map<String, Object> compilerOptions = new HashMap<>();
+                compilerOptions.put("flags", javacFlags());
+                compilerOptions.put("namedValues", javacNamedValues());
                 configuration.setJointCompilationOptions(compilerOptions);
-            }
-
-            if (indy) {
-                configuration.getOptimizationOptions().put("int", false);
-                configuration.getOptimizationOptions().put("indy", true);
             }
 
             final List<String> transformations = new ArrayList<>();
@@ -445,12 +435,12 @@ public class FileSystemCompiler {
 
             String configScripts = System.getProperty("groovy.starter.configscripts", null);
             if (configScript != null || (configScripts != null && !configScripts.isEmpty())) {
-                List<String> scripts = new ArrayList<String>();
+                List<String> scripts = new ArrayList<>();
                 if (configScript != null) {
                     scripts.add(configScript);
                 }
                 if (configScripts != null) {
-                    scripts.addAll(StringGroovyMethods.tokenize((CharSequence) configScripts, ','));
+                    scripts.addAll(StringGroovyMethods.tokenize(configScripts, ','));
                 }
                 processConfigScripts(scripts, configuration);
             }
@@ -462,26 +452,29 @@ public class FileSystemCompiler {
             return generateFileNamesFromOptions(files);
         }
 
-        String[] javacOptionsList() {
-            if (javacOptionsMap == null) {
-                return null;
+        private String[] javacNamedValues() {
+            List<String> result = new ArrayList<>();
+            if (javacOptionsMap != null) {
+                for (Map.Entry<String, String> entry : javacOptionsMap.entrySet()) {
+                    result.add(entry.getKey());
+                    result.add(entry.getValue());
+                }
             }
-            List<String> result = new ArrayList<String>();
-            for (Map.Entry<String, String> entry : javacOptionsMap.entrySet()) {
-                result.add(entry.getKey());
-                result.add(entry.getValue());
-            }
-            return result.toArray(new String[0]);
+            return result.isEmpty() ? null : result.toArray(new String[0]);
         }
 
-        String[] flagsWithParameterMetaData() {
-            if (flags == null) {
-                return null;
+        private String[] javacFlags() {
+            List<String> result = new ArrayList<>();
+            if (flags != null) {
+                result.addAll(flags);
             }
             if (parameterMetadata) {
-                flags.add("parameters");
+                result.add("parameters");
             }
-            return flags.toArray(new String[0]);
+            if (previewFeatures) {
+                result.add("-enable-preview");
+            }
+            return result.isEmpty() ? null : result.toArray(new String[0]);
         }
     }
 }

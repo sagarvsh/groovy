@@ -27,6 +27,7 @@ import org.codehaus.groovy.ast.ClassHelper;
 import org.codehaus.groovy.ast.ClassNode;
 import org.codehaus.groovy.ast.FieldNode;
 import org.codehaus.groovy.ast.GenericsType;
+import org.codehaus.groovy.ast.GroovyClassVisitor;
 import org.codehaus.groovy.ast.InnerClassNode;
 import org.codehaus.groovy.ast.MethodNode;
 import org.codehaus.groovy.ast.Parameter;
@@ -47,7 +48,6 @@ import org.codehaus.groovy.ast.tools.GeneralUtils;
 import org.codehaus.groovy.classgen.GeneratorContext;
 import org.codehaus.groovy.classgen.VariableScopeVisitor;
 import org.codehaus.groovy.classgen.Verifier;
-import org.codehaus.groovy.control.CompilationFailedException;
 import org.codehaus.groovy.control.CompilationUnit;
 import org.codehaus.groovy.control.CompilePhase;
 import org.codehaus.groovy.control.SourceUnit;
@@ -69,6 +69,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.apache.groovy.ast.tools.AnnotatedNodeUtils.markAsGenerated;
+import static org.apache.groovy.ast.tools.MethodNodeUtils.getCodeAsBlock;
 import static org.codehaus.groovy.ast.tools.GeneralUtils.returnS;
 import static org.codehaus.groovy.transform.trait.SuperCallTraitTransformer.UNRESOLVED_HELPER_CLASS;
 
@@ -219,15 +220,15 @@ public class TraitASTTransformation extends AbstractASTTransformation implements
         for (final MethodNode methodNode : methods) {
             boolean declared = methodNode.getDeclaringClass() == cNode;
             if (declared) {
-                if (!methodNode.isSynthetic() && (methodNode.isProtected() || methodNode.getModifiers()==0)) {
-                    unit.addError(new SyntaxException("Cannot have protected/package private method in a trait (" + cNode.getName() + "#" + methodNode.getTypeDescriptor() + ")",
+                if (!methodNode.isSynthetic() && (methodNode.isProtected() || (!methodNode.isPrivate() && !methodNode.isPublic()))) {
+                    unit.addError(new SyntaxException("Cannot have protected/package-private method in a trait (" + cNode.getName() + "#" + methodNode.getTypeDescriptor() + ")",
                             methodNode.getLineNumber(), methodNode.getColumnNumber()));
                     return null;
                 }
                 if (!methodNode.isAbstract()) {
                     MethodNode newMethod = processMethod(cNode, helper, methodNode, fieldHelper, fieldNames);
                     if (methodNode.getName().equals("<clinit>")) {
-                        staticInitStatements = getStatements(newMethod.getCode());
+                        staticInitStatements = getCodeAsBlock(newMethod).getStatements();
                     } else {
                         // add non-abstract methods; abstract methods covered from trait interface
                         helper.addMethod(newMethod);
@@ -311,15 +312,6 @@ public class TraitASTTransformation extends AbstractASTTransformation implements
         return toBlock;
     }
 
-    private List<Statement> getStatements(Statement stmt) {
-        if (stmt instanceof BlockStatement) {
-            return ((BlockStatement) stmt).getStatements();
-        }
-        List<Statement> result = new ArrayList<Statement>();
-        result.add(stmt);
-        return result;
-    }
-
     private static MethodNode createInitMethod(final boolean isStatic, final ClassNode cNode, final ClassNode helper) {
         MethodNode initializer = new MethodNode(
                 isStatic?Traits.STATIC_INIT_METHOD:Traits.INIT_METHOD,
@@ -340,19 +332,16 @@ public class TraitASTTransformation extends AbstractASTTransformation implements
     }
 
     private void registerASTTransformations(final ClassNode helper) {
-        ASTTransformationCollectorCodeVisitor collector = new ASTTransformationCollectorCodeVisitor(
-                unit, compilationUnit.getTransformLoader()
-        );
-        collector.visitClass(helper);
+        {
+            GroovyClassVisitor visitor = new ASTTransformationCollectorCodeVisitor(unit, compilationUnit.getTransformLoader());
+            visitor.visitClass(helper);
+        }
         // Perform an additional phase which has to be done *after* type checking
-        compilationUnit.addPhaseOperation(new CompilationUnit.PrimaryClassNodeOperation() {
-            @Override
-            public void call(final SourceUnit source, final GeneratorContext context, final ClassNode classNode) throws CompilationFailedException {
-                if (classNode==helper) {
-                    PostTypeCheckingExpressionReplacer replacer = new PostTypeCheckingExpressionReplacer(source);
-                    replacer.visitClass(helper);
-                }
-            }
+        compilationUnit.addPhaseOperation((final SourceUnit source, final GeneratorContext context, final ClassNode classNode) -> {
+            if (classNode != helper) return;
+
+            GroovyClassVisitor visitor = new PostTypeCheckingExpressionReplacer(source);
+            visitor.visitClass(helper);
         }, CompilePhase.INSTRUCTION_SELECTION.getPhaseNumber());
     }
 

@@ -17,9 +17,9 @@
  *  under the License.
  */
 dependencies {
-    compile rootProject
-    testCompile project(':groovy-test')
-    testCompile project(':groovy-dateutil')
+    api rootProject // DateTimeExtensions has methods with Closure params...
+    testImplementation project(':groovy-test')
+    testImplementation project(':groovy-dateutil')
 }
 
 task moduleDescriptor(type: org.codehaus.groovy.gradle.WriteExtensionDescriptorTask) {

@@ -26,7 +26,7 @@ import java.util.Map;
  * Map utilities.
  * @since 2.5.0
  */
-public abstract class Maps {
+public class Maps {
 
     public static <K, V> Map<K, V> of(K k1, V v1) {
         Map<K, V> map = new LinkedHashMap<K, V>();
@@ -5815,6 +5815,8 @@ public abstract class Maps {
             resultMap.put(value, entry.getKey());
         }
 
-        return Collections.<V, K>unmodifiableMap(resultMap);
+        return Collections.unmodifiableMap(resultMap);
     }
+
+    private Maps() {}
 }

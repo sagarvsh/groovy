@@ -70,6 +70,31 @@ include::{projectdir}/src/spec/test/SyntaxTest.groovy[tags=groovydoc_comment,ind
 Groovydoc follows the same conventions as Java's own Javadoc.
 So you'll be able to use the same tags as with Javadoc.
 
+In addition, Groovy supports *Runtime Groovydoc* since 3.0.0, i.e. Groovydoc can be retained at runtime.
+
+NOTE: Runtime Groovydoc is disabled by default. It can be enabled by adding JVM option `-Dgroovy.attach.runtime.groovydoc=true`
+
+The Runtime Groovydoc starts with `/\**@` and ends with `*/`, for example:
+
+[source,groovy]
+----
+/**@
+ * Some class groovydoc for Foo
+ */
+class Foo {
+    /**@
+     * Some method groovydoc for bar
+     */
+    void bar() {
+    }
+}
+
+assert Foo.class.groovydoc.content.contains('Some class groovydoc for Foo') // <1>
+assert Foo.class.getMethod('bar', new Class[0]).groovydoc.content.contains('Some method groovydoc for bar') // <2>
+----
+<1> Get the runtime groovydoc for class `Foo`
+<2> Get the runtime groovydoc for method `bar`
+
 === Shebang line
 
 Beside the single-line comment, there is a special line comment, often called the _shebang_ line understood by UNIX systems
@@ -135,7 +160,8 @@ The following list represents all the keywords of the Groovy language:
 |true
 |try
 
-|while | | |
+|var
+|while | |
 
 |===
 
@@ -295,11 +321,11 @@ Some special characters also use the backslash as escape character:
 |Escape sequence
 |Character
 
-|\t
-|tabulation
-
 |\b
 |backspace
+
+|\f
+|formfeed
 
 |\n
 |newline
@@ -307,8 +333,11 @@ Some special characters also use the backslash as escape character:
 |\r
 |carriage return
 
-|\f
-|formfeed
+|\s
+|single space
+
+|\t
+|tabulation
 
 |\\
 |backslash
@@ -1072,6 +1101,31 @@ include::{projectdir}/src/spec/test/SyntaxTest.groovy[tags=array_3,indent=0]
 [NOTE]
 Java's array initializer notation is not supported by Groovy, 
 as the curly braces can be misinterpreted with the notation of Groovy closures.
+
+==== Java-style array initialization
+
+Groovy has always supported literal list/array definitions using square brackets
+and has avoided Java-style curly braces so as not to conflict with closure definitions.
+In the case where the curly braces come immediately after an array type declaration however,
+there is no ambiguity with closure definitions, so the Java style is now also supported.
+
+Examples:
+
+[source,groovy]
+--------------------------------------
+def primes = new int[] {2, 3, 5, 7, 11}
+assert primes.size() == 5 && primes.sum() == 28
+assert primes.class.name == '[I'
+
+def pets = new String[] {'cat', 'dog'}
+assert pets.size() == 2 && pets.sum() == 'catdog'
+assert pets.class.name == '[Ljava.lang.String;'
+
+// traditional Groovy alternative still supported
+String[] groovyBooks = [ 'Groovy in Action', 'Making Java Groovy' ]
+assert groovyBooks.every{ it.contains('Groovy') }
+--------------------------------------
+
 
 == Maps
 

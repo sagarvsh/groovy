@@ -586,20 +586,17 @@ public class InvokerHelper {
             out.append(stringWriter.toString());
         } else if (object instanceof InputStream || object instanceof Reader) {
             // Copy stream to stream
-            Reader reader;
-            if (object instanceof InputStream) {
-                reader = new InputStreamReader((InputStream) object);
-            } else {
-                reader = (Reader) object;
-            }
-            char[] chars = new char[8192];
-            int i;
-            while ((i = reader.read(chars)) != -1) {
-                for (int j = 0; j < i; j++) {
-                    out.append(chars[j]);
+            try (Reader reader =
+                         object instanceof InputStream
+                                 ? new InputStreamReader((InputStream) object)
+                                 : (Reader) object) {
+                char[] chars = new char[8192];
+                for (int i; (i = reader.read(chars)) != -1; ) {
+                    for (int j = 0; j < i; j++) {
+                        out.append(chars[j]);
+                    }
                 }
             }
-            reader.close();
         } else {
             out.append(toString(object));
         }
@@ -666,8 +663,8 @@ public class InvokerHelper {
         if (arguments instanceof String) {
             if (verbose) {
                 String arg = escapeBackslashes((String) arguments)
-                        .replaceAll("'", "\\\\'");    // single quotation mark
-                return "\'" + arg + "\'";
+                        .replace("'", "\\'");    // single quotation mark
+                return "'" + arg + "'";
             } else {
                 return (String) arguments;
             }
@@ -690,9 +687,9 @@ public class InvokerHelper {
         return orig
                 .replace("\\", "\\\\")           // backslash
                 .replace("\n", "\\n")            // line feed
-                .replaceAll("\\r", "\\\\r")      // carriage return
-                .replaceAll("\\t", "\\\\t")      // tab
-                .replaceAll("\\f", "\\\\f");     // form feed
+                .replace("\r", "\\r")            // carriage return
+                .replace("\t", "\\t")            // tab
+                .replace("\f", "\\f");           // form feed
     }
 
     private static String handleFormattingException(Object item, Exception ex) {
@@ -804,8 +801,8 @@ public class InvokerHelper {
         return argBuf.toString();
     }
 
-    private static Set<String> DEFAULT_IMPORT_PKGS = new HashSet<String>();
-    private static Set<String> DEFAULT_IMPORT_CLASSES = new HashSet<String>();
+    private static final Set<String> DEFAULT_IMPORT_PKGS = new HashSet<String>();
+    private static final Set<String> DEFAULT_IMPORT_CLASSES = new HashSet<String>();
     static {
         for (String pkgName : ResolveVisitor.DEFAULT_IMPORTS) {
             DEFAULT_IMPORT_PKGS.add(pkgName.substring(0, pkgName.length() - 1));

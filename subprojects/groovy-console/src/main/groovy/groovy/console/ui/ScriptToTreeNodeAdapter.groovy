@@ -98,7 +98,6 @@ import org.codehaus.groovy.classgen.GeneratorContext
 import org.codehaus.groovy.classgen.asm.BytecodeHelper
 import org.codehaus.groovy.control.CompilationFailedException
 import org.codehaus.groovy.control.CompilationUnit
-import org.codehaus.groovy.control.CompilationUnit.PrimaryClassNodeOperation
 import org.codehaus.groovy.control.CompilerConfiguration
 import org.codehaus.groovy.control.SourceUnit
 
@@ -165,18 +164,13 @@ class ScriptToTreeNodeAdapter {
      *      a Groovy script in String form
      * @param compilePhase
      *      the int based CompilePhase to compile it to.
-     * @param indy
-     *      if {@code true} InvokeDynamic (Indy) bytecode is generated
      */
-    def compile(String script, int compilePhase, boolean indy=false) {
+    def compile(String script, int compilePhase) {
         def scriptName = 'script' + System.currentTimeMillis() + '.groovy'
         GroovyCodeSource codeSource = new GroovyCodeSource(script, scriptName, '/groovy/script')
         CompilerConfiguration cc = new CompilerConfiguration(config ?: CompilerConfiguration.DEFAULT)
         if (config) {
             cc.addCompilationCustomizers(*config.compilationCustomizers)
-        }
-        if (indy) {
-            cc.optimizationOptions.put(CompilerConfiguration.INVOKEDYNAMIC, true)
         }
         CompilationUnit cu = new CompilationUnit(cc, codeSource.codeSource, classLoader)
         cu.setClassgenCallback(classLoader.createCollector(cu, null))
@@ -275,7 +269,7 @@ class ScriptToTreeNodeAdapter {
 /**
  * This Node Operation builds up a root tree node for the viewer.
  */
-class TreeNodeBuildingNodeOperation extends PrimaryClassNodeOperation {
+class TreeNodeBuildingNodeOperation implements CompilationUnit.IPrimaryClassNodeOperation {
 
     final root
     final sourceCollected = new AtomicBoolean(false)
@@ -336,7 +330,7 @@ class TreeNodeBuildingNodeOperation extends PrimaryClassNodeOperation {
 
         def innerClassNodes = compileUnit.generatedInnerClasses.values().sort { it.name }
         innerClassNodes.each { InnerClassNode innerClassNode ->
-            if (!innerClassNode.implementsInterface(ClassHelper.GENERATED_CLOSURE_Type) && !innerClassNode.implementsInterface(ClassHelper.GENERATED_LAMBDA_TYPE)) return
+            if (!ClassHelper.isGeneratedFunction(innerClassNode)) return
             if (innerClassNode.outerMostClass != classNode) return
 
             def child = adapter.make(innerClassNode)
@@ -560,7 +554,7 @@ class TreeNodeBuildingVisitor extends CodeVisitorSupport {
     }
 
     @Override
-    protected void visitEmptyStatement(EmptyStatement node) {
+    void visitEmptyStatement(EmptyStatement node) {
         addNode(node, EmptyStatement, { super.visitEmptyStatement(it) })
     }
 

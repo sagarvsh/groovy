@@ -101,11 +101,7 @@ public class MarkupTemplateEngine extends TemplateEngine {
                     }
             );
         }
-        groovyClassLoader = AccessController.doPrivileged(new PrivilegedAction<TemplateGroovyClassLoader>() {
-            public TemplateGroovyClassLoader run() {
-                return new TemplateGroovyClassLoader(parentLoader, compilerConfiguration);
-            }
-        });
+        groovyClassLoader = AccessController.doPrivileged((PrivilegedAction<TemplateGroovyClassLoader>) () -> new TemplateGroovyClassLoader(parentLoader, compilerConfiguration));
         if (DEBUG_BYTECODE) {
             compilerConfiguration.setBytecodePostprocessor(BytecodeDumper.STANDARD_ERR);
         }
@@ -290,7 +286,7 @@ public class MarkupTemplateEngine extends TemplateEngine {
         }
 
         public boolean hasLocale() {
-            return locale != null && !"".equals(locale);
+            return locale != null && !locale.isEmpty();
         }
     }
 

@@ -23,6 +23,8 @@ import groovy.lang.GroovyClassLoader;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * A base class for data structures that can collect messages and errors
  * during processing.
@@ -72,7 +74,7 @@ public abstract class ProcessingUnit {
     }
 
     /**
-     * Get the CompilerConfiguration for this ProcessingUnit.
+     * Gets the CompilerConfiguration for this ProcessingUnit.
      */
     public CompilerConfiguration getConfiguration() {
         return configuration;
@@ -82,7 +84,7 @@ public abstract class ProcessingUnit {
      * Sets the CompilerConfiguration for this ProcessingUnit.
      */
     public final void setConfiguration(CompilerConfiguration configuration) {
-        this.configuration = configuration;
+        this.configuration = requireNonNull(configuration);
     }
 
     /**
@@ -98,12 +100,10 @@ public abstract class ProcessingUnit {
     public void setClassLoader(final GroovyClassLoader loader) {
         // ClassLoaders should only be created inside a doPrivileged block in case
         // this method is invoked by code that does not have security permissions.
-        this.classLoader = loader != null ? loader : AccessController.doPrivileged(new PrivilegedAction<GroovyClassLoader>() {
-            public GroovyClassLoader run() {
-                ClassLoader parent = Thread.currentThread().getContextClassLoader();
-                if (parent == null) parent = ProcessingUnit.class.getClassLoader();
-                return new GroovyClassLoader(parent, getConfiguration());
-            }
+        this.classLoader = loader != null ? loader : AccessController.doPrivileged((PrivilegedAction<GroovyClassLoader>) () -> {
+            ClassLoader parent = Thread.currentThread().getContextClassLoader();
+            if (parent == null) parent = ProcessingUnit.class.getClassLoader();
+            return new GroovyClassLoader(parent, getConfiguration());
         });
     }
 

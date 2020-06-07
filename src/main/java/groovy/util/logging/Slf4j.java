@@ -23,12 +23,10 @@ import groovy.transform.Undefined;
 import org.codehaus.groovy.ast.ClassNode;
 import org.codehaus.groovy.ast.FieldNode;
 import org.codehaus.groovy.ast.expr.ArgumentListExpression;
-import org.codehaus.groovy.ast.expr.BooleanExpression;
 import org.codehaus.groovy.ast.expr.ClassExpression;
 import org.codehaus.groovy.ast.expr.ConstantExpression;
 import org.codehaus.groovy.ast.expr.Expression;
 import org.codehaus.groovy.ast.expr.MethodCallExpression;
-import org.codehaus.groovy.ast.expr.TernaryExpression;
 import org.codehaus.groovy.transform.GroovyASTTransformationClass;
 import org.codehaus.groovy.transform.LogASTTransformation;
 
@@ -39,6 +37,7 @@ import java.lang.annotation.Target;
 import java.util.Locale;
 
 import static org.codehaus.groovy.ast.tools.GeneralUtils.nullX;
+import static org.codehaus.groovy.ast.tools.GeneralUtils.ternaryX;
 
 /**
  * This local transform adds a logging ability to your program using
@@ -76,7 +75,7 @@ public @interface Slf4j {
 
     Class<? extends LogASTTransformation.LoggingStrategy> loggingStrategy() default Slf4jLoggingStrategy.class;
 
-    public static class Slf4jLoggingStrategy extends LogASTTransformation.AbstractLoggingStrategyV2 {
+    class Slf4jLoggingStrategy extends LogASTTransformation.AbstractLoggingStrategyV2 {
         private static final String LOGGER_NAME = "org.slf4j.Logger";
         private static final String FACTORY_NAME = "org.slf4j.LoggerFactory";
 
@@ -108,11 +107,7 @@ public @interface Slf4j {
                     ArgumentListExpression.EMPTY_ARGUMENTS);
             condition.setImplicitThis(false);
 
-            return new TernaryExpression(
-                    new BooleanExpression(condition),
-                    originalExpression,
-                    nullX());
+            return ternaryX(condition, originalExpression, nullX());
         }
     }
-
 }

@@ -436,6 +436,7 @@ public final class ClosureMetaClass extends MetaClassImpl {
         attributeInitDone = !attributes.isEmpty();
     }
 
+    @Override
     public synchronized void initialize() {
         if (!isInitialized()) {
             CachedMethod[] methodArray = theCachedClass.getMethods();
@@ -446,8 +447,7 @@ public final class ClosureMetaClass extends MetaClassImpl {
                 }
             }
             assignMethodChooser();
-
-            initialized = true;
+            setInitialized(true);
         }
     }
 
@@ -458,21 +458,17 @@ public final class ClosureMetaClass extends MetaClassImpl {
             int length = c.length;
             if (length == 0) {
                 // no arg method
-                chooser = new MethodChooser() {
-                    public Object chooseMethod(Class[] arguments, boolean coerce) {
-                        if (arguments.length == 0) return doCall;
-                        return null;
-                    }
+                chooser = (arguments, coerce) -> {
+                    if (arguments.length == 0) return doCall;
+                    return null;
                 };
             } else {
                 if (length == 1 && c[0].getTheClass() == Object.class) {
                     // Object fits all, so simple dispatch rule here
-                    chooser = new MethodChooser() {
-                        public Object chooseMethod(Class[] arguments, boolean coerce) {
-                            // <2, because foo() is same as foo(null)
-                            if (arguments.length < 2) return doCall;
-                            return null;
-                        }
+                    chooser = (arguments, coerce) -> {
+                        // <2, because foo() is same as foo(null)
+                        if (arguments.length < 2) return doCall;
+                        return null;
                     };
                 } else {
                     boolean allObject = true;
@@ -484,11 +480,9 @@ public final class ClosureMetaClass extends MetaClassImpl {
                     }
                     if (allObject && c[c.length - 1].getTheClass() == Object.class) {
                         // all arguments are object, so test only if argument number is correct
-                        chooser = new MethodChooser() {
-                            public Object chooseMethod(Class[] arguments, boolean coerce) {
-                                if (arguments.length == c.length) return doCall;
-                                return null;
-                            }
+                        chooser = (arguments, coerce) -> {
+                            if (arguments.length == c.length) return doCall;
+                            return null;
                         };
                     } else {
                         if (allObject && c[c.length - 1].getTheClass() == Object[].class) {
@@ -496,21 +490,17 @@ public final class ClosureMetaClass extends MetaClassImpl {
                             // will fit all, so just test if the number of argument is equal or
                             // more than the parameters we have.
                             final int minimumLength = c.length - 2;
-                            chooser = new MethodChooser() {
-                                public Object chooseMethod(Class[] arguments, boolean coerce) {
-                                    if (arguments.length > minimumLength) return doCall;
-                                    return null;
-                                }
+                            chooser = (arguments, coerce) -> {
+                                if (arguments.length > minimumLength) return doCall;
+                                return null;
                             };
                         } else {
                             // general case for single method
-                            chooser = new MethodChooser() {
-                                public Object chooseMethod(Class[] arguments, boolean coerce) {
-                                    if (doCall.isValidMethod(arguments)) {
-                                        return doCall;
-                                    }
-                                    return null;
+                            chooser = (arguments, coerce) -> {
+                                if (doCall.isValidMethod(arguments)) {
+                                    return doCall;
                                 }
+                                return null;
                             };
                         }
                     }
@@ -585,8 +575,14 @@ public final class ClosureMetaClass extends MetaClassImpl {
         return null;
     }
 
+    @Override
     protected boolean isInitialized() {
         return initialized;
+    }
+
+    @Override
+    protected void setInitialized(boolean initialized) {
+        this.initialized = initialized;
     }
 
     public MetaMethod getStaticMetaMethod(String name, Object[] args) {

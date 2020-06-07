@@ -40,7 +40,6 @@ import org.codehaus.groovy.runtime.InvokerHelper;
 import org.codehaus.groovy.transform.stc.StaticTypeCheckingSupport;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -218,12 +217,8 @@ public class ToStringASTTransformation extends AbstractASTTransformation {
         }
 
         if (includes != null) {
-            Comparator<ToStringElement> includeComparator = new Comparator<ToStringElement>() {
-                public int compare(ToStringElement tse1, ToStringElement tse2) {
-                    return Integer.compare(includes.indexOf(tse1.name), includes.indexOf(tse2.name));
-                }
-            };
-            Collections.sort(elements, includeComparator);
+            Comparator<ToStringElement> includeComparator = Comparator.comparingInt(tse -> includes.indexOf(tse.name));
+            elements.sort(includeComparator);
         }
 
         for (ToStringElement el : elements) {

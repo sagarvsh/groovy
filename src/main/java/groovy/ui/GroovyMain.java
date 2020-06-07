@@ -195,7 +195,7 @@ public class GroovyMain {
         @Option(names = {"-e"}, paramLabel = "<script>", description = "Specify a command line script")
         private String script;
 
-        @Option(names = {"-i"}, arity = "0..1", paramLabel = "<extension>", description = "Modify files in place; create backup if extension is given (e.g. \'.bak\')")
+        @Option(names = {"-i"}, arity = "0..1", paramLabel = "<extension>", description = "Modify files in place; create backup if extension is given (e.g. '.bak')")
         private String extension;
 
         @Option(names = {"-n"}, description = "Process files line by line using implicit 'line' variable")
@@ -215,9 +215,6 @@ public class GroovyMain {
 
         @Option(names = {"-a", "--autosplit"}, arity = "0..1", paramLabel = "<splitPattern>", description = "Split lines using splitPattern (default '\\s') using implicit 'split' variable")
         private String splitPattern;
-
-        @Option(names = {"--indy"}, description = "Enables compilation using invokedynamic")
-        private boolean indy;
 
         @Option(names = {"--configscript"}, paramLabel = "<script>", description = "A script for tweaking the configuration options")
         private String configscript;
@@ -293,11 +290,6 @@ public class GroovyMain {
 
             for (String optimization : disableopt) {
                 main.conf.getOptimizationOptions().put(optimization, false);
-            }
-
-            if (indy) {
-                System.setProperty("groovy.target.indy", "true");
-                main.conf.getOptimizationOptions().put("indy", true);
             }
 
             if (scriptBaseClass != null) {

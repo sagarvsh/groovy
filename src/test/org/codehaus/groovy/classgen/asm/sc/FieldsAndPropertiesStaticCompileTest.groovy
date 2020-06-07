@@ -20,7 +20,7 @@ package org.codehaus.groovy.classgen.asm.sc
 
 import groovy.transform.stc.FieldsAndPropertiesSTCTest
 
-class FieldsAndPropertiesStaticCompileTest extends FieldsAndPropertiesSTCTest implements StaticCompilationTestSupport{
+final class FieldsAndPropertiesStaticCompileTest extends FieldsAndPropertiesSTCTest implements StaticCompilationTestSupport {
 
     void testMapGetAt() {
         assertScript '''
@@ -217,7 +217,7 @@ class FieldsAndPropertiesStaticCompileTest extends FieldsAndPropertiesSTCTest im
             class B extends A {
                 // B.x visible in B A.x in A, but reflection depending on the runtime type
                 // would see B.x in A#sameAs and not A.x
-                private int x 
+                private int x
                 public B(int x) {
                     super(x)
                     this.@x = x + 50
@@ -241,7 +241,7 @@ class FieldsAndPropertiesStaticCompileTest extends FieldsAndPropertiesSTCTest im
             class B extends A {
                 // B.x visible in B A.x in A, but reflection depending on the runtime type
                 // would see B.x in A#sameAs and not A.x
-                private int x 
+                private int x
                 public B(int x) {
                     super(x)
                     this.x = x + 50
@@ -283,7 +283,7 @@ class FieldsAndPropertiesStaticCompileTest extends FieldsAndPropertiesSTCTest im
         // no GETFIELD in getXX
         assert (astTrees['B'][1] =~ 'GETFIELD A.x').collect().size() == 0
         // getX in getXX
-        assert (astTrees['B'][1] =~ 'INVOKEVIRTUAL A.getX').collect().size() == 1
+        assert (astTrees['B'][1] =~ 'INVOKEVIRTUAL B.getX').collect().size() == 1
     }
 
     void testUseDirectReadFieldAccess() {
@@ -348,6 +348,7 @@ class FieldsAndPropertiesStaticCompileTest extends FieldsAndPropertiesSTCTest im
             assert a.isSetterCalled() == false
         '''
     }
+
     void testUseAttributeExternalSafe() {
         assertScript '''
             class A {
@@ -364,6 +365,7 @@ class FieldsAndPropertiesStaticCompileTest extends FieldsAndPropertiesSTCTest im
             assert a.isSetterCalled() == false
         '''
     }
+
     void testUseAttributeExternalSafeWithNull() {
         assertScript '''
             class A {
@@ -378,6 +380,7 @@ class FieldsAndPropertiesStaticCompileTest extends FieldsAndPropertiesSTCTest im
             a?.@x = 100
         '''
     }
+
     void testUseGetterExternal() {
         assertScript '''
             class A {
@@ -467,12 +470,11 @@ class FieldsAndPropertiesStaticCompileTest extends FieldsAndPropertiesSTCTest im
 
     // GROOVY-5649
     void testShouldNotThrowStackOverflowUsingThis() {
-        new GroovyShell().evaluate '''class HaveOption {
+        new GroovyShell().evaluate '''
+        class HaveOption {
 
           private String helpOption;
 
-
-          @groovy.transform.CompileStatic
           public void setHelpOption(String helpOption) {
             this.helpOption = helpOption
           }
@@ -483,13 +485,13 @@ class FieldsAndPropertiesStaticCompileTest extends FieldsAndPropertiesSTCTest im
         assert o.helpOption
         '''
     }
+
     void testShouldNotThrowStackOverflow() {
-        new GroovyShell().evaluate '''class HaveOption {
+        new GroovyShell().evaluate '''
+        class HaveOption {
 
           private String helpOption;
 
-
-          @groovy.transform.CompileStatic
           public void setHelpOption(String ho) {
             helpOption = ho
           }
@@ -588,7 +590,7 @@ import org.codehaus.groovy.transform.sc.ListOfExpressionsExpression
         }
     }
 
-    //GROOVY-7698
+    // GROOVY-7698
     void testSafePropertyStyleSetterCalls() {
         assertScript '''
             class Foo {
@@ -759,33 +761,34 @@ import org.codehaus.groovy.transform.sc.ListOfExpressionsExpression
                 new A().test()
             '''
         } finally {
-            assert !astTrees['A'][1].contains('pfaccess$00') // no mutator bridge method for 'accessed'
-            assert !astTrees['A'][1].contains('pfaccess$1') // no accessor bridge method for 'mutated'
-            assert astTrees['A$_closure1'][1].contains('INVOKESTATIC A.pfaccess$2 (LA;)Ljava/lang/String;')
-            assert astTrees['A$_closure1'][1].contains('INVOKESTATIC A.pfaccess$02 (LA;Ljava/lang/String;)Ljava/lang/String;')
+            def dump = astTrees['A'][1]
+            assert dump.contains('pfaccess$0') // accessor bridge method for 'accessed'
+            assert !dump.contains('pfaccess$00') // no mutator bridge method for 'accessed'
+            assert dump.contains('pfaccess$01') // mutator bridge method for 'mutated'
+            assert dump.contains('pfaccess$1') // accessor bridge method for 'mutated' -- GROOVY-9385
+            assert dump.contains('pfaccess$2') // accessor bridge method for 'accessedAndMutated'
+            assert dump.contains('pfaccess$02') // mutator bridge method for 'accessedAndMutated'
+            dump = astTrees['A$_closure1'][1]
+            assert dump.contains('INVOKESTATIC A.pfaccess$2 (LA;)Ljava/lang/String;')
+            assert dump.contains('INVOKESTATIC A.pfaccess$02 (LA;Ljava/lang/String;)Ljava/lang/String;')
         }
     }
 
-    //GROOVY-8369
+    // GROOVY-8369
     void testPropertyAccessOnEnumClass() {
-        try {
-            assertScript '''
-                enum Foo {}
+        assertScript '''
+            enum Foo {}
 
-                def test() {
-                    assert Foo.getModifiers() == Foo.modifiers
-                }    
-                test()
-            '''
-        } finally {
-            //println astTrees
-        }
+            def test() {
+                assert Foo.getModifiers() == Foo.modifiers
+            }
+            test()
+        '''
     }
 
-    //GROOVY-8753
+    // GROOVY-8753
     void testPrivateFieldWithPublicGetter() {
         assertScript '''
-            @groovy.transform.CompileStatic
             class A {
                private List<String> fooNames = []
                public A(Collection<String> names) {

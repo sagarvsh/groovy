@@ -77,42 +77,28 @@ public class ClassInfo implements Finalizable {
     private final LockableObject lock = new LockableObject();
     public final int hash = -1;
     private final WeakReference<Class<?>> classRef;
-
-    // TODO: should be able to remove the klazz field once 2.5 becomes the mainline release
-    // Gradle has a cleanup mechanism in place to reflectively access this klazz field.
-    // The klazz field is being kept for compatibility so as to not break builds that depend
-    // on versions of Groovy after the field was changed to a WeakReference (classRef).  It
-    // appears that Gradle only performs the cleanup when it detects a groovy version of 2.4.x,
-    // so the klazz field and placeholder Sentinel class can likely be safely removed once
-    // the release version bumps to 2.5 (or beyond).
-    // See:
-    // https://github.com/gradle/gradle/blob/711f64/subprojects/core/src/main/java/org/gradle/api/internal/classloading/LeakyOnJava7GroovySystemLoader.java#L74
-    private static final class Sentinel {}
-    private static final Class<?> klazz = Sentinel.class;
-
     private final AtomicInteger version = new AtomicInteger();
-
     private MetaClass strongMetaClass;
     private ManagedReference<MetaClass> weakMetaClass;
-    MetaMethod[] dgmMetaMethods = CachedClass.EMPTY;
-    MetaMethod[] newMetaMethods = CachedClass.EMPTY;
+    MetaMethod[] dgmMetaMethods = MetaMethod.EMPTY_ARRAY;
+    MetaMethod[] newMetaMethods = MetaMethod.EMPTY_ARRAY;
     private ManagedConcurrentMap<Object, MetaClass> perInstanceMetaClassMap;
-    
+
     private static final ReferenceBundle softBundle = ReferenceBundle.getSoftBundle();
     private static final ReferenceBundle weakBundle = ReferenceBundle.getWeakBundle();
-    
+
     private static final ManagedConcurrentLinkedQueue<ClassInfo> modifiedExpandos =
             new ManagedConcurrentLinkedQueue<ClassInfo>(weakBundle);
 
     private static final GroovyClassValue<ClassInfo> globalClassValue = GroovyClassValueFactory.createGroovyClassValue(new ComputeValue<ClassInfo>(){
-		@Override
-		public ClassInfo computeValue(Class<?> type) {
-			ClassInfo ret = new ClassInfo(type);
-			globalClassSet.add(ret);
-			return ret;
-		}
-	});
-    
+        @Override
+        public ClassInfo computeValue(Class<?> type) {
+            ClassInfo ret = new ClassInfo(type);
+            globalClassSet.add(ret);
+            return ret;
+        }
+    });
+
     private static final GlobalClassSet globalClassSet = new GlobalClassSet();
 
     ClassInfo(Class klazz) {
@@ -210,7 +196,7 @@ public class ClassInfo implements Finalizable {
         // safe value here to avoid multiple reads with possibly
         // differing values due to concurrency
         MetaClass strongRef = strongMetaClass;
-        
+
         if (strongRef instanceof ExpandoMetaClass) {
             ((ExpandoMetaClass)strongRef).inRegistry = false;
             for (Iterator<ClassInfo> itr = modifiedExpandos.iterator(); itr.hasNext(); ) {
@@ -274,11 +260,11 @@ public class ClassInfo implements Finalizable {
     private MetaClass getMetaClassUnderLock() {
         MetaClass answer = getStrongMetaClass();
         if (answer!=null) return answer;
-        
+
         answer = getWeakMetaClass();
         final MetaClassRegistry metaClassRegistry = GroovySystem.getMetaClassRegistry();
         MetaClassRegistry.MetaClassCreationHandle mccHandle = metaClassRegistry.getMetaClassCreationHandler();
-        
+
         if (isValidWeakMetaClass(answer, mccHandle)) {
             return answer;
         }
@@ -293,7 +279,7 @@ public class ClassInfo implements Finalizable {
         }
         return answer;
     }
-    
+
     private static boolean isValidWeakMetaClass(MetaClass metaClass) {
         return isValidWeakMetaClass(metaClass, GroovySystem.getMetaClassRegistry().getMetaClassCreationHandler());
     }
@@ -366,7 +352,7 @@ public class ClassInfo implements Finalizable {
                 cachedClass = new BigDecimalCachedClass(klazz, classInfo);
             } else if (klazz == Long.class || klazz == Long.TYPE) {
                 cachedClass = new LongCachedClass(klazz, classInfo, klazz==Long.class);
-            } else if (klazz == Float.class || klazz == Float.TYPE) { 
+            } else if (klazz == Float.class || klazz == Float.TYPE) {
                 cachedClass = new FloatCachedClass(klazz, classInfo, klazz==Float.class);
             } else if (klazz == Short.class || klazz == Short.TYPE) {
                 cachedClass = new ShortCachedClass(klazz, classInfo, klazz==Short.class);
@@ -398,7 +384,7 @@ public class ClassInfo implements Finalizable {
         }
         return cachedClass;
     }
-    
+
     private static boolean isSAM(Class<?> c) {
         return CachedSAMClass.getSAMMethod(c) !=null;
     }
@@ -423,7 +409,7 @@ public class ClassInfo implements Finalizable {
 
         if (metaClass != null) {
             if (perInstanceMetaClassMap == null)
-              perInstanceMetaClassMap = new ManagedConcurrentMap<Object, MetaClass>(ReferenceBundle.getWeakBundle()); 
+              perInstanceMetaClassMap = new ManagedConcurrentMap<Object, MetaClass>(ReferenceBundle.getWeakBundle());
 
             perInstanceMetaClassMap.put(obj, metaClass);
         }
@@ -462,11 +448,7 @@ public class ClassInfo implements Finalizable {
         }
 
         public ClassLoaderForClassArtifacts initValue() {
-            return AccessController.doPrivileged(new PrivilegedAction<ClassLoaderForClassArtifacts>() {
-                public ClassLoaderForClassArtifacts run() {
-                    return new ClassLoaderForClassArtifacts(info.classRef.get());
-                }
-            });
+            return AccessController.doPrivileged((PrivilegedAction<ClassLoaderForClassArtifacts>) () -> new ClassLoaderForClassArtifacts(info.classRef.get()));
         }
     }
 
@@ -478,24 +460,24 @@ public class ClassInfo implements Finalizable {
     }
 
     private static class GlobalClassSet {
-    	
-    	private final ManagedConcurrentLinkedQueue<ClassInfo> items = new ManagedConcurrentLinkedQueue<ClassInfo>(weakBundle);
-    	
-    	public int size(){
-		    return values().size();
-    	}
-    	
-    	public int fullSize(){
-		    return values().size();
-    	}
-    	
-    	public Collection<ClassInfo> values(){
-    	    return items.values();
-    	}
-    	
-    	public void add(ClassInfo value){
+
+        private final ManagedConcurrentLinkedQueue<ClassInfo> items = new ManagedConcurrentLinkedQueue<ClassInfo>(weakBundle);
+
+        public int size(){
+            return values().size();
+        }
+
+        public int fullSize(){
+            return values().size();
+        }
+
+        public Collection<ClassInfo> values(){
+            return items.values();
+        }
+
+        public void add(ClassInfo value){
             items.add(value);
-    	}
+        }
 
     }
 

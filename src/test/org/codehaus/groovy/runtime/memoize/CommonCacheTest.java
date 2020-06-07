@@ -60,12 +60,7 @@ public class CommonCacheTest {
         CommonCache<String, String> sc = new CommonCache<>();
 
         EvictableCache.ValueProvider vp =
-                new EvictableCache.ValueProvider<String, String>() {
-                    @Override
-                    public String provide(String key) {
-                        return "Chinese";
-                    }
-                };
+                (EvictableCache.ValueProvider<String, String>) key -> "Chinese";
 
         Assert.assertEquals("Chinese", sc.getAndPut("language", vp,false));
         Assert.assertNull(sc.get("language"));
@@ -176,7 +171,7 @@ public class CommonCacheTest {
 
     @Test
     public void testLruCache() {
-        CommonCache<String, String> sc = new CommonCache<String, String>(3);
+        CommonCache<String, String> sc = new CommonCache<>(3);
         sc.put("a", "1");
         sc.put("b", "2");
         sc.put("c", "3");
@@ -190,7 +185,7 @@ public class CommonCacheTest {
 
     @Test
     public void testFifoCache() {
-        CommonCache<String, String> sc = new CommonCache<String, String>(3, 3, EvictableCache.EvictionStrategy.FIFO);
+        CommonCache<String, String> sc = new CommonCache<>(3, 3, EvictableCache.EvictionStrategy.FIFO);
         sc.put("a", "1");
         sc.put("b", "2");
         sc.put("c", "3");

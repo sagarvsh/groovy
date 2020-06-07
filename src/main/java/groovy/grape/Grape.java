@@ -37,9 +37,9 @@ public class Grape {
     private static final URI[] EMPTY_URI_ARRAY = new URI[0];
     private static final Map[] EMPTY_MAP_ARRAY = new Map[0];
 
-    private static boolean enableGrapes = Boolean.valueOf(System.getProperty("groovy.grape.enable", "true"));
-    private static boolean enableAutoDownload = Boolean.valueOf(System.getProperty("groovy.grape.autoDownload", "true"));
-    private static boolean disableChecksums = Boolean.valueOf(System.getProperty("groovy.grape.disableChecksums", "false"));
+    private static boolean enableGrapes = Boolean.parseBoolean(System.getProperty("groovy.grape.enable", "true"));
+    private static boolean enableAutoDownload = Boolean.parseBoolean(System.getProperty("groovy.grape.autoDownload", "true"));
+    private static boolean disableChecksums = Boolean.parseBoolean(System.getProperty("groovy.grape.disableChecksums", "false"));
     protected static GrapeEngine instance;
 
     /**
@@ -189,9 +189,8 @@ public class Grape {
         }
         if (grapes == null) {
             return Collections.emptyMap();
-        } else {
-            return grapes;
         }
+        return grapes;
     }
 
     public static URI[] resolve(Map<String, Object> args, Map... dependencies) {
@@ -214,9 +213,8 @@ public class Grape {
         }
         if (uris == null) {
             return EMPTY_URI_ARRAY;
-        } else {
-            return uris;
         }
+        return uris;
     }
 
     public static Map[] listDependencies(ClassLoader cl) {
@@ -229,10 +227,8 @@ public class Grape {
         }
         if (maps == null) {
             return EMPTY_MAP_ARRAY;
-        } else {
-            return maps;
         }
-
+        return maps;
     }
 
     public static void addResolver(Map<String, Object> args) {

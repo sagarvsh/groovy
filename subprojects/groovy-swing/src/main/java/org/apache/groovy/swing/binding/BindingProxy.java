@@ -28,10 +28,10 @@ import java.util.Map;
 
 /**
  * This class returns half bound {@link org.apache.groovy.swing.binding.FullBinding}s on the source half to the model
- * object for every property reference (and I do mean every, valid or not, queried before or not).  These returned
+ * object for every property reference (and I do mean every, valid or not, queried before or not). These returned
  * half bindings are stored strongly in a list when generated.
  *
- * Changing the model will keep all existing bindings but change the source on all of the bininfs
+ * Changing the model will keep all existing bindings but change the source on all of the bindings.
  *
  * Formerly Known as Model Binding.
  *
@@ -49,7 +49,7 @@ public class BindingProxy extends GroovyObjectSupport implements BindingUpdatabl
         this.model = model;
     }
 
-    public Object getModel() {
+    public synchronized Object getModel() {
         return model;
     }
 
@@ -72,6 +72,7 @@ public class BindingProxy extends GroovyObjectSupport implements BindingUpdatabl
 
     public Object getProperty(String property) {
         PropertyBinding pb;
+        final Object model = getModel();
         synchronized (propertyBindings) {
             // should we verify the property is valid?
             pb = propertyBindings.get(property);
@@ -88,7 +89,7 @@ public class BindingProxy extends GroovyObjectSupport implements BindingUpdatabl
     }
 
     public void setProperty(String property, Object value) {
-        throw new ReadOnlyPropertyException(property, model.getClass());
+        throw new ReadOnlyPropertyException(property, getModel().getClass());
     }
 
     public void bind() {

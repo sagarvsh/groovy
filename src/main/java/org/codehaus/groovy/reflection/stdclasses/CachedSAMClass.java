@@ -37,7 +37,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.ListIterator;
 import java.util.Map;
 
 public class CachedSAMClass extends CachedClass {
@@ -103,11 +102,7 @@ public class CachedSAMClass extends CachedClass {
 
     private static Method[] getDeclaredMethods(final Class c) {
         try {
-            Method[] methods = AccessController.doPrivileged(new PrivilegedAction<Method[]>() {
-                public Method[] run() {
-                    return c.getDeclaredMethods();
-                }
-            });
+            Method[] methods = AccessController.doPrivileged((PrivilegedAction<Method[]>) c::getDeclaredMethods);
             if (methods!=null) return methods;
         } catch (java.security.AccessControlException ace) {
             // swallow and do as if no method is available
@@ -197,11 +192,7 @@ public class CachedSAMClass extends CachedClass {
             LinkedList<Method> methods = new LinkedList();
             getAbstractMethods(c, methods);
             if (methods.isEmpty()) return null;
-            ListIterator<Method> it = methods.listIterator();
-            while (it.hasNext()) {
-                Method m = it.next();
-                if (hasUsableImplementation(c, m)) it.remove();
-            }
+            methods.removeIf(m -> hasUsableImplementation(c, m));
             return getSingleNonDuplicateMethod(methods);
         }
     }

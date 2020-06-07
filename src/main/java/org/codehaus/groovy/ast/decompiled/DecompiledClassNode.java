@@ -27,9 +27,11 @@ import org.codehaus.groovy.ast.GenericsType;
 import org.codehaus.groovy.ast.MethodNode;
 import org.codehaus.groovy.ast.MixinNode;
 import org.codehaus.groovy.classgen.Verifier;
+import org.objectweb.asm.Opcodes;
 
 import java.lang.reflect.Modifier;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * A {@link ClassNode} kind representing the classes coming from *.class files decompiled using ASM.
@@ -39,8 +41,8 @@ import java.util.List;
 public class DecompiledClassNode extends ClassNode {
     private final ClassStub classData;
     private final AsmReferenceResolver resolver;
-    private boolean supersInitialized = false;
-    private boolean membersInitialized = false;
+    private volatile boolean supersInitialized;
+    private volatile boolean membersInitialized;
 
     public DecompiledClassNode(ClassStub data, AsmReferenceResolver resolver) {
         super(data.className, getFullModifiers(data), null, null, MixinNode.EMPTY_ARRAY);
@@ -176,6 +178,8 @@ public class DecompiledClassNode extends ClassNode {
     }
 
     private void lazyInitSupers() {
+        if (supersInitialized) return;
+
         synchronized (lazyInitLock) {
             if (!supersInitialized) {
                 ClassSignatureParser.configureClass(this, this.classData, this.resolver);
@@ -187,28 +191,63 @@ public class DecompiledClassNode extends ClassNode {
     }
 
     private void lazyInitMembers() {
+        if (membersInitialized) return;
+
         synchronized (lazyInitLock) {
             if (!membersInitialized) {
                 if (classData.methods != null) {
                     for (MethodStub method : classData.methods) {
-                        MethodNode node = addAnnotations(method, MemberSignatureParser.createMethodNode(resolver, method));
-                        if (node instanceof ConstructorNode) {
-                            addConstructor((ConstructorNode) node);
+                        if (isConstructor(method)) {
+                            addConstructor(createConstructor(method));
                         } else {
-                            addMethod(node);
+                            addMethod(createMethodNode(method));
                         }
                     }
                 }
 
                 if (classData.fields != null) {
                     for (FieldStub field : classData.fields) {
-                        addField(addAnnotations(field, MemberSignatureParser.createFieldNode(field, resolver, this)));
+                        addField(createFieldNode(field));
                     }
                 }
 
                 membersInitialized = true;
             }
         }
+    }
+
+    private FieldNode createFieldNode(final FieldStub field) {
+        Supplier<FieldNode> fieldNodeSupplier = () -> addAnnotations(field, MemberSignatureParser.createFieldNode(field, resolver, this));
+
+        if ((field.accessModifiers & Opcodes.ACC_PRIVATE) != 0) {
+            return new LazyFieldNode(fieldNodeSupplier, field.fieldName);
+        }
+
+        return fieldNodeSupplier.get();
+    }
+
+    private MethodNode createMethodNode(final MethodStub method) {
+        Supplier<MethodNode> methodNodeSupplier = () -> addAnnotations(method, MemberSignatureParser.createMethodNode(resolver, method));
+
+        if ((method.accessModifiers & Opcodes.ACC_PRIVATE) != 0) {
+            return new LazyMethodNode(methodNodeSupplier, method.methodName);
+        }
+
+        return methodNodeSupplier.get();
+    }
+
+    private ConstructorNode createConstructor(final MethodStub method) {
+        Supplier<ConstructorNode> constructorNodeSupplier = () -> (ConstructorNode) addAnnotations(method, MemberSignatureParser.createMethodNode(resolver, method));
+
+        if ((method.accessModifiers & Opcodes.ACC_PRIVATE) != 0) {
+            return new LazyConstructorNode(constructorNodeSupplier);
+        }
+
+        return constructorNodeSupplier.get();
+    }
+
+    private boolean isConstructor(MethodStub method) {
+        return "<init>".equals(method.methodName);
     }
 
     private <T extends AnnotatedNode> T addAnnotations(MemberStub stub, T node) {

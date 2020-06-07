@@ -24,8 +24,8 @@ import groovy.lang.GroovyCodeSource;
 import groovy.lang.GroovyResourceLoader;
 import groovy.lang.Script;
 import org.codehaus.groovy.GroovyBugError;
+import org.codehaus.groovy.ast.ClassHelper;
 import org.codehaus.groovy.ast.ClassNode;
-import org.codehaus.groovy.ast.InnerClassNode;
 import org.codehaus.groovy.classgen.GeneratorContext;
 import org.codehaus.groovy.control.ClassNodeResolver;
 import org.codehaus.groovy.control.CompilationFailedException;
@@ -61,11 +61,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * with dependent scripts.
  */
 public class GroovyScriptEngine implements ResourceConnector {
-    private static final ClassLoader CL_STUB = AccessController.doPrivileged(new PrivilegedAction<ClassLoader>() {
-        public ClassLoader run() {
-            return new ClassLoader() {};
-        }
-    });
+    private static final ClassLoader CL_STUB = AccessController.doPrivileged((PrivilegedAction<ClassLoader>) () -> new ClassLoader() {});
 
     private static final URL[] EMPTY_URL_ARRAY = new URL[0];
 
@@ -133,20 +129,18 @@ public class GroovyScriptEngine implements ResourceConnector {
 
         private void setResLoader() {
             final GroovyResourceLoader rl = getResourceLoader();
-            setResourceLoader(new GroovyResourceLoader() {
-                public URL loadGroovySource(String className) throws MalformedURLException {
-                    String filename;
-                    for (String extension : getConfig().getScriptExtensions()) {
-                        filename = className.replace('.', File.separatorChar) + "." + extension;
-                        try {
-                            URLConnection dependentScriptConn = rc.getResourceConnection(filename);
-                            return dependentScriptConn.getURL();
-                        } catch (ResourceException e) {
-                            //TODO: maybe do something here?
-                        }
+            setResourceLoader(className -> {
+                String filename;
+                for (String extension : getConfig().getScriptExtensions()) {
+                    filename = className.replace('.', File.separatorChar) + "." + extension;
+                    try {
+                        URLConnection dependentScriptConn = rc.getResourceConnection(filename);
+                        return dependentScriptConn.getURL();
+                    } catch (ResourceException e) {
+                        //TODO: maybe do something here?
                     }
-                    return rl.loadGroovySource(className);
                 }
+                return rl.loadGroovySource(className);
             });
         }
 
@@ -172,16 +166,12 @@ public class GroovyScriptEngine implements ResourceConnector {
             // remove all old entries including the "." entry
             cache.clear();
 
-            cu.addPhaseOperation(new CompilationUnit.PrimaryClassNodeOperation() {
-                @Override
-                public void call(final SourceUnit source, GeneratorContext context, ClassNode classNode)
-                        throws CompilationFailedException {
-                    // GROOVY-4013: If it is an inner class, tracking its dependencies doesn't really
-                    // serve any purpose and also interferes with the caching done to track dependencies
-                    if (classNode instanceof InnerClassNode) return;
-                    DependencyTracker dt = new DependencyTracker(source, cache, precompiledEntries);
-                    dt.visitClass(classNode);
-                }
+            cu.addPhaseOperation((final SourceUnit sourceUnit, final GeneratorContext context, final ClassNode classNode) -> {
+               // GROOVY-4013: If it is an inner class, tracking its dependencies doesn't really
+               // serve any purpose and also interferes with the caching done to track dependencies
+               if (classNode.getOuterClass() != null) return;
+               DependencyTracker dt = new DependencyTracker(sourceUnit, cache, precompiledEntries);
+               dt.visitClass(classNode);
             }, Phases.CLASS_GENERATION);
 
             cu.setClassNodeResolver(new ClassNodeResolver() {
@@ -209,7 +199,7 @@ public class GroovyScriptEngine implements ResourceConnector {
                                 precompiledEntries.put(origName, path);
                             }
                             if (clazz != null) {
-                                ClassNode cn = new ClassNode(clazz);
+                                ClassNode cn = ClassHelper.make(clazz);
                                 return new LookupResult(null, cn);
                             }
                         } catch (ResourceException re) {
@@ -349,13 +339,11 @@ public class GroovyScriptEngine implements ResourceConnector {
      */
     private GroovyClassLoader initGroovyLoader() {
         GroovyClassLoader groovyClassLoader =
-                AccessController.doPrivileged(new PrivilegedAction<ScriptClassLoader>() {
-                    public ScriptClassLoader run() {
-                        if (parentLoader instanceof GroovyClassLoader) {
-                            return new ScriptClassLoader((GroovyClassLoader) parentLoader);
-                        } else {
-                            return new ScriptClassLoader(parentLoader, config);
-                        }
+                AccessController.doPrivileged((PrivilegedAction<ScriptClassLoader>) () -> {
+                    if (parentLoader instanceof GroovyClassLoader) {
+                        return new ScriptClassLoader((GroovyClassLoader) parentLoader);
+                    } else {
+                        return new ScriptClassLoader(parentLoader, config);
                     }
                 });
         for (URL root : roots) groovyClassLoader.addURL(root);

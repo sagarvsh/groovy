@@ -283,7 +283,7 @@ public class StructuredSyntaxDocumentFilter extends DocumentFilter {
     // tabs with spaces (I hate tabs)
     private String replaceMetaCharacters(String string) {
         // just in case remove carriage returns
-        string = string.replaceAll("\\t", TAB_REPLACEMENT);
+        string = string.replace("\\t", TAB_REPLACEMENT);
         return string;
     }
     
@@ -337,7 +337,7 @@ public class StructuredSyntaxDocumentFilter extends DocumentFilter {
                 // have to compile regexp first so that it will match
                 groupList.add(Pattern.compile(nextRegexp).pattern());
             }
-            if (!regexp.toString().equals("")) {
+            if (!regexp.toString().isEmpty()) {
                 matcher = Pattern.compile(regexp.substring(1)).matcher("");
                 
                 iter = children.values().iterator();

@@ -26,6 +26,9 @@ import org.codehaus.groovy.ast.CompileUnit;
 
 import java.lang.reflect.AccessibleObject;
 import java.lang.reflect.Method;
+import java.util.Collections;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Interface to access VM version based actions.
@@ -98,9 +101,28 @@ public interface VMPlugin {
      *
      * @param metaClass meta class
      * @param metaMethod the original meta method
-     * @param params parameter types
-     * @param caller caller type
+     * @param caller caller class, whose method sets accessible for methods
      * @return the transformed meta method
      */
-    MetaMethod transformMetaMethod(MetaClass metaClass, MetaMethod metaMethod, Class<?>[] params, Class<?> caller);
+    MetaMethod transformMetaMethod(MetaClass metaClass, MetaMethod metaMethod, Class<?> caller);
+
+    /**
+     * transform meta method.
+     *
+     * @param metaClass meta class
+     * @param metaMethod the original meta method
+     * @return the transformed meta method
+     */
+    MetaMethod transformMetaMethod(MetaClass metaClass, MetaMethod metaMethod);
+
+    /**
+     * Returns the default import classes: class name -&gt; the relevant package names
+     *
+     * @param packageNames the default import package names, e.g. java.lang.
+     * @return the default import classes
+     * @since 3.0.2
+     */
+    default Map<String, Set<String>> getDefaultImportClasses(String[] packageNames) {
+        return Collections.emptyMap();
+    }
 }

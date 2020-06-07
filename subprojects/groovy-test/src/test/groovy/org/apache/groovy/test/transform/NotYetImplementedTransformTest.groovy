@@ -18,122 +18,165 @@
  */
 package org.apache.groovy.test.transform
 
-import groovy.test.GroovyShellTestCase
-import junit.framework.AssertionFailedError
+import org.junit.Test
 
-class NotYetImplementedTransformTest extends GroovyShellTestCase {
+final class NotYetImplementedTransformTest {
 
-    void testNotYetImplemented() {
-        def output = evaluate("""
-              import groovy.test.GroovyTestCase
-              import groovy.test.NotYetImplemented
+    private final GroovyShell shell = new GroovyShell()
 
-              class MyTests extends GroovyTestCase {
-                @NotYetImplemented void testShouldNotFail()  {
-                    assertFalse true
+    @Test
+    void testNotYetImplementedJUnit3Failure() {
+        def output = shell.evaluate('''
+            import groovy.test.GroovyTestCase
+            import groovy.test.NotYetImplemented
+
+            class MyTests extends GroovyTestCase {
+                @NotYetImplemented void testThatFails()  {
+                    assertTrue(false)
                 }
-              }
-
-              junit.textui.TestRunner.run(new junit.framework.TestSuite(MyTests))
-        """)
-
-        assertNotNull output
-        assertTrue "test method marked with @NotYetImplemented must NOT throw an AsssertionFailedError", output.wasSuccessful()
-    }
-
-    void testNotYetImplementedWithException() {
-            def output = evaluate("""
-                  import groovy.test.GroovyTestCase
-                  import groovy.test.NotYetImplemented
-
-                  class MyTests extends GroovyTestCase {
-                    @NotYetImplemented void testShouldNotFail()  {
-                        'test'.yetUnkownMethod()
-                    }
-                  }
-
-                  junit.textui.TestRunner.run(new junit.framework.TestSuite(MyTests))
-            """)
-
-            assertNotNull output
-            assertTrue "test method marked with @NotYetImplemented must NOT throw an AsssertionFailedError", output.wasSuccessful()
-        }
-
-    void testNotYetImplementedPassThrough() {
-        def output = evaluate("""
-              import groovy.test.GroovyTestCase
-              import groovy.test.NotYetImplemented
-
-              class MyTests extends GroovyTestCase {
-                @NotYetImplemented void testShouldFail()  {
-                    assertTrue true
-                }
-              }
-
-              junit.textui.TestRunner.run(new junit.framework.TestSuite(MyTests))
-        """)
-
-        assertNotNull output
-
-        assertEquals "test method marked with @NotYetImplemented must throw an AssertionFailedError", 1, output.failureCount()
-        assertEquals "test method marked with @NotYetImplemented must throw an AssertionFailedError", AssertionFailedError, output.failures().nextElement().thrownException().class
-    }
-
-    void testEmptyTestMethod() {
-        def output = evaluate("""
-              import groovy.test.GroovyTestCase
-              import groovy.test.NotYetImplemented
-
-              class MyTests extends GroovyTestCase {
-                @NotYetImplemented void testShouldNotFail()  {}
-              }
-
-              junit.textui.TestRunner.run(new junit.framework.TestSuite(MyTests))
-        """)
-
-        assertNotNull output
-
-        assertTrue "empty test method must not throw an AssertionFailedError", output.wasSuccessful()
-    }
-
-    void testNotYetImplementedJUnit4()  {
-
-        def output = evaluate("""
-        import groovy.test.NotYetImplemented
-        import org.junit.Test
-        import org.junit.runner.JUnitCore
-
-        class MyTests {
-            @NotYetImplemented @Test void testShouldNotFail()  {
-                junit.framework.Assert.assertFalse true
             }
-        }
 
-        new JUnitCore().run(MyTests)
-        """)
+            junit.textui.TestRunner.run(new junit.framework.TestSuite(MyTests))
+        ''')
 
-        assertTrue output.wasSuccessful()
-
+        assert output.wasSuccessful() : 'failing test method marked with @NotYetImplemented must NOT throw an AssertionError'
     }
 
-    void testNotYetImplementedPassThroughJUnit4() {
-        def output = evaluate("""
-              import groovy.test.NotYetImplemented
-              import org.junit.Test
-              import org.junit.runner.JUnitCore
+    @Test
+    void testNotYetImplementedJUnit3Exception() {
+        def output = shell.evaluate('''
+            import groovy.test.GroovyTestCase
+            import groovy.test.NotYetImplemented
 
-              class MyTests {
-                @NotYetImplemented @Test void shouldFail()  {
-                    junit.framework.Assert.assertTrue true
+            class MyTests extends GroovyTestCase {
+                @NotYetImplemented void testThatFails()  {
+                    'test'.missingMethod()
                 }
-              }
+            }
 
-              new JUnitCore().run(MyTests)
-        """)
+            junit.textui.TestRunner.run(new junit.framework.TestSuite(MyTests))
+        ''')
 
-        assertNotNull output
+        assert output.wasSuccessful() : 'test method throwing exception marked with @NotYetImplemented must NOT throw an AssertionError'
+    }
 
-        assertEquals "test method marked with @NotYetImplemented must throw an AssertionFailedError", 1, output.failureCount
-        assertEquals "test method marked with @NotYetImplemented must throw an AssertionFailedError", AssertionFailedError, output.failures.first().exception.class
+    @Test
+    void testNotYetImplementedJunit3PassThrough() {
+        def output = shell.evaluate('''
+            import groovy.test.GroovyTestCase
+            import groovy.test.NotYetImplemented
+
+            class MyTests extends GroovyTestCase {
+                @NotYetImplemented(exception=junit.framework.AssertionFailedError) void testThatPasses()  {
+                    assertTrue(true)
+                }
+            }
+
+            junit.textui.TestRunner.run(new junit.framework.TestSuite(MyTests))
+        ''')
+
+        assert output.failureCount() == 1 : 'succeeding test method marked with @NotYetImplemented must throw an AssertionError'
+        assert output.failures().nextElement().thrownException() instanceof AssertionError : 'succeeding test method marked with @NotYetImplemented must throw an AssertionError'
+    }
+
+    @Test
+    void testNotYetImplementedJUnit3EmptyMethod() {
+        def output = shell.evaluate('''
+            import groovy.test.GroovyTestCase
+            import groovy.test.NotYetImplemented
+
+            class MyTests extends GroovyTestCase {
+                @NotYetImplemented void testShouldNotFail() {
+                }
+            }
+
+            junit.textui.TestRunner.run(new junit.framework.TestSuite(MyTests))
+        ''')
+
+        assert output.wasSuccessful() : 'empty test method must not throw an AssertionError'
+    }
+
+    @Test
+    void testNotYetImplementedJUnit4Failure()  {
+        def output = shell.evaluate('''
+            import groovy.test.NotYetImplemented
+            import org.junit.Assert
+            import org.junit.Test
+            import org.junit.runner.JUnitCore
+
+            class MyTests {
+                @NotYetImplemented @Test void testThatFails()  {
+                    Assert.assertTrue(false)
+                }
+            }
+
+            new JUnitCore().run(MyTests)
+        ''')
+
+        assert output.wasSuccessful() : 'failing @Test method marked with @NotYetImplemented must NOT throw an AssertionError'
+    }
+
+    @Test // GROOVY-8457
+    void testNotYetImplementedJUnit4Failure_atCompileStatic()  {
+        def output = shell.evaluate('''
+            import groovy.transform.CompileStatic
+            import groovy.test.NotYetImplemented
+            import org.junit.Test
+            import org.junit.runner.JUnitCore
+
+            @CompileStatic
+            class MyTests {
+                @NotYetImplemented @Test void testThatFails()  {
+                    assert false
+                }
+            }
+
+            new JUnitCore().run(MyTests)
+        ''')
+
+        assert output.wasSuccessful() : 'failing @Test method marked with @CompileStatic and @NotYetImplemented must NOT throw an AssertionError'
+    }
+
+    @Test
+    void testNotYetImplementedJUnit4Success() {
+        def output = shell.evaluate('''
+            import groovy.test.NotYetImplemented
+            import org.junit.Assert
+            import org.junit.Test
+            import org.junit.runner.JUnitCore
+
+            class MyTests {
+                @NotYetImplemented @Test void testThatPasses()  {
+                    Assert.assertTrue(true)
+                }
+            }
+
+            new JUnitCore().run(MyTests)
+        ''')
+
+        assert output.failureCount == 1 : 'succeeding @Test method marked with @NotYetImplemented must throw an AssertionError'
+        assert output.failures.first().exception instanceof AssertionError : 'succeeding @Test method marked with @NotYetImplemented must throw an AssertionError'
+    }
+
+    @Test // GROOVY-8457
+    void testNotYetImplementedJUnit4Success_atCompileStatic()  {
+        def output = shell.evaluate('''
+            import groovy.transform.CompileStatic
+            import groovy.test.NotYetImplemented
+            import org.junit.Test
+            import org.junit.runner.JUnitCore
+
+            @CompileStatic
+            class MyTests {
+                @NotYetImplemented @Test void testThatFails()  {
+                    assert true
+                }
+            }
+
+            new JUnitCore().run(MyTests)
+        ''')
+
+        assert output.failureCount == 1 : 'succeeding @Test method marked with @CompileStatic and @NotYetImplemented must throw an AssertionError'
+        assert output.failures.first().exception instanceof AssertionError : 'succeeding @Test method marked with @CompileStatic and @NotYetImplemented must throw an AssertionError'
     }
 }

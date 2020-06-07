@@ -26,7 +26,6 @@ import org.objectweb.asm.Opcodes;
 
 import java.io.File;
 import java.io.PrintWriter;
-import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -35,58 +34,63 @@ import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.StringTokenizer;
 
+import static org.apache.groovy.util.SystemUtil.getBooleanSafe;
 import static org.apache.groovy.util.SystemUtil.getSystemPropertySafe;
+import static org.codehaus.groovy.runtime.StringGroovyMethods.isAtLeast;
 
 /**
  * Compilation control flags and coordination stuff.
  */
 public class CompilerConfiguration {
 
-    /** This (<code>"indy"</code>) is the Optimization Option value for enabling <code>invokedynamic</code> compilation. */
+    /** Optimization Option for enabling <code>invokedynamic</code> compilation. */
     public static final String INVOKEDYNAMIC = "indy";
 
-    /** This (<code>"groovydoc"</code>) is the Optimization Option value for enabling attaching groovydoc as AST node metadata. */
+    /** Optimization Option for enabling attaching groovydoc as AST node metadata. */
     public static final String GROOVYDOC = "groovydoc";
 
-    /** This (<code>"runtimeGroovydoc"</code>) is the Optimization Option value for enabling attaching {@link groovy.lang.Groovydoc} annotation. */
+    /** Optimization Option for enabling attaching {@link groovy.lang.Groovydoc} annotation. */
     public static final String RUNTIME_GROOVYDOC = "runtimeGroovydoc";
 
-    /** This (<code>"memStub"</code>) is the Joint Compilation Option value for enabling generating stubs in memory. .*/
+    /** Joint Compilation Option for enabling generating stubs in memory. */
     public static final String MEM_STUB = "memStub";
 
-    /** This (<code>"1.4"</code>) is the value for targetBytecode to compile for a JDK 1.4. **/
+    /** This (<code>"1.4"</code>) is the value for targetBytecode to compile for a JDK 1.4. */
     public static final String JDK4 = "1.4";
-    /** This (<code>"1.5"</code>) is the value for targetBytecode to compile for a JDK 1.5. **/
+    /** This (<code>"1.5"</code>) is the value for targetBytecode to compile for a JDK 1.5. */
     public static final String JDK5 = "1.5";
-    /** This (<code>"1.6"</code>) is the value for targetBytecode to compile for a JDK 1.6. **/
+    /** This (<code>"1.6"</code>) is the value for targetBytecode to compile for a JDK 1.6. */
     public static final String JDK6 = "1.6";
-    /** This (<code>"1.7"</code>) is the value for targetBytecode to compile for a JDK 1.7. **/
+    /** This (<code>"1.7"</code>) is the value for targetBytecode to compile for a JDK 1.7. */
     public static final String JDK7 = "1.7";
-    /** This (<code>"1.8"</code>) is the value for targetBytecode to compile for a JDK 1.8. **/
+    /** This (<code>"1.8"</code>) is the value for targetBytecode to compile for a JDK 1.8. */
     public static final String JDK8 = "1.8";
-    /** This (<code>"9"</code>) is the value for targetBytecode to compile for a JDK 9. **/
+    /** This (<code>"9"</code>) is the value for targetBytecode to compile for a JDK 9. */
     public static final String JDK9 = "9";
-    /** This (<code>"10"</code>) is the value for targetBytecode to compile for a JDK 10. **/
+    /** This (<code>"10"</code>) is the value for targetBytecode to compile for a JDK 10. */
     public static final String JDK10 = "10";
-    /** This (<code>"11"</code>) is the value for targetBytecode to compile for a JDK 11. **/
+    /** This (<code>"11"</code>) is the value for targetBytecode to compile for a JDK 11. */
     public static final String JDK11 = "11";
-    /** This (<code>"12"</code>) is the value for targetBytecode to compile for a JDK 12. **/
+    /** This (<code>"12"</code>) is the value for targetBytecode to compile for a JDK 12. */
     public static final String JDK12 = "12";
-    /** This (<code>"13"</code>) is the value for targetBytecode to compile for a JDK 13. **/
+    /** This (<code>"13"</code>) is the value for targetBytecode to compile for a JDK 13. */
     public static final String JDK13 = "13";
-    /** This (<code>"14"</code>) is the value for targetBytecode to compile for a JDK 14. **/
+    /** This (<code>"14"</code>) is the value for targetBytecode to compile for a JDK 14. */
     public static final String JDK14 = "14";
+    /** This (<code>"15"</code>) is the value for targetBytecode to compile for a JDK 15. */
+    public static final String JDK15 = "15";
 
     /**
      * This constant is for comparing targetBytecode to ensure it is set to JDK 1.5 or later.
      * @deprecated
      */
     @Deprecated
-    public static final String POST_JDK5 = JDK5; // for backwards compatibility
+    public static final String POST_JDK5 = JDK5;
 
     /**
      * This constant is for comparing targetBytecode to ensure it is set to an earlier value than JDK 1.5.
@@ -96,29 +100,35 @@ public class CompilerConfiguration {
     public static final String PRE_JDK5 = JDK4;
 
     /**
-     * JDK version to bytecode version mapping
+     * JDK version to bytecode version mapping.
      */
     public static final Map<String, Integer> JDK_TO_BYTECODE_VERSION_MAP = Maps.of(
-            JDK4, Opcodes.V1_4,
-            JDK5, Opcodes.V1_5,
-            JDK6, Opcodes.V1_6,
-            JDK7, Opcodes.V1_7,
-            JDK8, Opcodes.V1_8,
-            JDK9, Opcodes.V9,
+            JDK4,  Opcodes.V1_4,
+            JDK5,  Opcodes.V1_5,
+            JDK6,  Opcodes.V1_6,
+            JDK7,  Opcodes.V1_7,
+            JDK8,  Opcodes.V1_8,
+            JDK9,  Opcodes.V9,
             JDK10, Opcodes.V10,
             JDK11, Opcodes.V11,
             JDK12, Opcodes.V12,
             JDK13, Opcodes.V13,
-            JDK14, Opcodes.V14
+            JDK14, Opcodes.V14,
+            JDK15, Opcodes.V15
     );
 
-    private static final String[] EMPTY_STRING_ARRAY = new String[0];
-
-    /** An array of the valid targetBytecode values */
-    public static final String[] ALLOWED_JDKS = JDK_TO_BYTECODE_VERSION_MAP.keySet().toArray(EMPTY_STRING_ARRAY);
+    /**
+     * The valid targetBytecode values.
+     */
+    public static final String[] ALLOWED_JDKS = JDK_TO_BYTECODE_VERSION_MAP.keySet().toArray(new String[JDK_TO_BYTECODE_VERSION_MAP.size()]);
 
     /**
-     * The default source encoding
+    * The ASM api version to use when loading/parsing classes, and generating proxy adapter classes.
+    */
+    public static final int ASM_API_VERSION = Opcodes.ASM8;
+
+    /**
+     * The default source encoding.
      */
     public static final String DEFAULT_SOURCE_ENCODING = "UTF-8";
 
@@ -126,7 +136,7 @@ public class CompilerConfiguration {
      *  A convenience for getting a default configuration.  Do not modify it!
      *  See {@link #CompilerConfiguration(Properties)} for an example on how to
      *  make a suitable copy to modify.  But if you're really starting from a
-     *  default context, then you probably just want <code>new CompilerConfiguration()</code>. 
+     *  default context, then you probably just want <code>new CompilerConfiguration()</code>.
      */
     public static final CompilerConfiguration DEFAULT = new CompilerConfiguration() {
         @Override
@@ -141,12 +151,12 @@ public class CompilerConfiguration {
 
         @Override
         public Set<String> getDisabledGlobalASTTransformations() {
-            return Collections.emptySet();
+            return Optional.ofNullable(super.getDisabledGlobalASTTransformations()).map(Collections::unmodifiableSet).orElse(null);
         }
 
         @Override
         public Map<String, Object> getJointCompilationOptions() {
-            return Collections.unmodifiableMap(super.getJointCompilationOptions());
+            return Optional.ofNullable(super.getJointCompilationOptions()).map(Collections::unmodifiableMap).orElse(null);
         }
 
         @Override
@@ -160,126 +170,125 @@ public class CompilerConfiguration {
         }
 
         @Override
-        public void setBytecodePostprocessor(BytecodeProcessor bytecodePostprocessor) {
+        public void setBytecodePostprocessor(final BytecodeProcessor bytecodePostprocessor) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void setClasspath(String classpath) {
+        public void setClasspath(final String classpath) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void setClasspathList(List<String> parts) {
+        public void setClasspathList(final List<String> parts) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public CompilerConfiguration addCompilationCustomizers(CompilationCustomizer... customizers) {
+        public CompilerConfiguration addCompilationCustomizers(final CompilationCustomizer... customizers) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void setDebug(boolean debug) {
+        public void setDebug(final boolean debug) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void setDefaultScriptExtension(String defaultScriptExtension) {
+        public void setDefaultScriptExtension(final String defaultScriptExtension) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void setDisabledGlobalASTTransformations(Set<String> disabledGlobalASTTransformations) {
+        public void setDisabledGlobalASTTransformations(final Set<String> disabledGlobalASTTransformations) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void setJointCompilationOptions(Map<String, Object> options) {
+        public void setJointCompilationOptions(final Map<String, Object> options) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void setMinimumRecompilationInterval(int time) {
+        public void setMinimumRecompilationInterval(final int time) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void setOptimizationOptions(Map<String, Boolean> options) {
+        public void setOptimizationOptions(final Map<String, Boolean> options) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void setOutput(PrintWriter output) {
+        public void setOutput(final PrintWriter output) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void setParameters(boolean parameters) {
+        public void setParameters(final boolean parameters) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void setPluginFactory(ParserPluginFactory pluginFactory) {
+        public void setPluginFactory(final ParserPluginFactory pluginFactory) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void setPreviewFeatures(boolean previewFeatures) {
+        public void setPreviewFeatures(final boolean previewFeatures) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void setRecompileGroovySource(boolean recompile) {
+        public void setRecompileGroovySource(final boolean recompile) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void setScriptBaseClass(String scriptBaseClass) {
+        public void setScriptBaseClass(final String scriptBaseClass) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void setScriptExtensions(Set<String> scriptExtensions) {
+        public void setScriptExtensions(final Set<String> scriptExtensions) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void setSourceEncoding(String encoding) {
+        public void setSourceEncoding(final String encoding) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void setTargetBytecode(String version) {
+        public void setTargetBytecode(final String version) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void setTargetDirectory(File directory) {
+        public void setTargetDirectory(final File directory) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void setTargetDirectory(String directory) {
+        public void setTargetDirectory(final String directory) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void setTolerance(int tolerance) {
+        public void setTolerance(final int tolerance) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void setVerbose(boolean verbose) {
+        public void setVerbose(final boolean verbose) {
             throw new UnsupportedOperationException();
         }
 
         @Override
-        public void setWarningLevel(int level) {
+        public void setWarningLevel(final int level) {
             throw new UnsupportedOperationException();
         }
     };
-
 
     /**
      * See {@link WarningMessage} for levels.
@@ -304,7 +313,7 @@ public class CompilerConfiguration {
     /**
      * Classpath for use during compilation
      */
-    private LinkedList<String> classpath;
+    private List<String> classpath;
 
     /**
      * If true, the compiler should produce action information
@@ -319,7 +328,7 @@ public class CompilerConfiguration {
     /**
      * If true, generates metadata for reflection on method parameters
      */
-    private boolean parameters = false;
+    private boolean parameters;
 
     /**
      * The number of non-fatal errors to allow before bailing
@@ -341,7 +350,7 @@ public class CompilerConfiguration {
     /**
      * extensions used to find a groovy files
      */
-    private Set<String> scriptExtensions = new LinkedHashSet<String>();
+    private Set<String> scriptExtensions = new LinkedHashSet<>();
 
     /**
      * if set to true recompilation is enabled
@@ -373,7 +382,7 @@ public class CompilerConfiguration {
      */
     private Map<String, Boolean> optimizationOptions;
 
-    private final List<CompilationCustomizer> compilationCustomizers = new LinkedList<CompilationCustomizer>();
+    private final List<CompilationCustomizer> compilationCustomizers = new LinkedList<>();
 
     /**
      * Global AST transformations which should not be loaded even if they are
@@ -383,8 +392,6 @@ public class CompilerConfiguration {
     private Set<String> disabledGlobalASTTransformations;
 
     private BytecodeProcessor bytecodePostprocessor;
-
-    public static final int ASM_API_VERSION = Opcodes.ASM7;
 
     /**
      * Sets the compiler flags/settings to default values.
@@ -399,7 +406,6 @@ public class CompilerConfiguration {
      *   <tr><td><code>groovy.target.directory</code></td><td>{@link #getTargetDirectory}</td></tr>
      *   <tr><td><code>groovy.parameters</code></td><td>{@link #getParameters()}</td></tr>
      *   <tr><td><code>groovy.preview.features</code></td><td>{@link #isPreviewFeatures}</td></tr>
-     *   <tr><td><code>groovy.script.base</code></td><td>{@link #getScriptBaseClass}</td></tr>
      *   <tr><td><code>groovy.default.scriptExtension</code></td><td>{@link #getDefaultScriptExtension}</td></tr>
      * </table>
      * </blockquote>
@@ -416,49 +422,33 @@ public class CompilerConfiguration {
      * </blockquote>
      */
     public CompilerConfiguration() {
-        // Set in safe defaults
-        warningLevel = WarningMessage.LIKELY_ERRORS;
-        classpath = new LinkedList<String>();
-        parameters = getSystemPropertySafe("groovy.parameters") != null;
+        classpath = new LinkedList<>();
+
         tolerance = 10;
         minimumRecompilationInterval = 100;
-
-        setTargetBytecodeIfValid(getSystemPropertySafe("groovy.target.bytecode", getMinBytecodeVersion()));
-
-        previewFeatures = getSystemPropertySafe("groovy.preview.features") != null;
+        warningLevel = WarningMessage.LIKELY_ERRORS;
+        parameters = getBooleanSafe("groovy.parameters");
+        previewFeatures = getBooleanSafe("groovy.preview.features");
+        sourceEncoding = getSystemPropertySafe("groovy.source.encoding",
+            getSystemPropertySafe("file.encoding", DEFAULT_SOURCE_ENCODING));
+        setTargetDirectorySafe(getSystemPropertySafe("groovy.target.directory"));
+        setTargetBytecodeIfValid(getSystemPropertySafe("groovy.target.bytecode", JDK8));
         defaultScriptExtension = getSystemPropertySafe("groovy.default.scriptExtension", ".groovy");
 
-        // Source file encoding
-        String encoding = getSystemPropertySafe("file.encoding", DEFAULT_SOURCE_ENCODING);
-        encoding = getSystemPropertySafe("groovy.source.encoding", encoding);
-        setSourceEncodingOrDefault(encoding);
-
-        setTargetDirectorySafe(getSystemPropertySafe("groovy.target.directory"));
-
         optimizationOptions = new HashMap<>(4);
-        handleOptimizationOption(optimizationOptions, INVOKEDYNAMIC, "groovy.target.indy");
+        handleOptimizationOption(optimizationOptions, INVOKEDYNAMIC, "groovy.target.indy", "true");
         handleOptimizationOption(optimizationOptions, GROOVYDOC, "groovy.attach.groovydoc");
         handleOptimizationOption(optimizationOptions, RUNTIME_GROOVYDOC, "groovy.attach.runtime.groovydoc");
-
-        jointCompilationOptions = new HashMap<>(4);
-        handleJointCompilationOption(jointCompilationOptions, MEM_STUB, "groovy.generate.stub.in.memory");
     }
 
-    private void handleOptimizationOption(Map<String, Boolean> options, String optionName, String sysOptionName) {
-        String propValue = getSystemPropertySafe(sysOptionName);
+    private void handleOptimizationOption(final Map<String, Boolean> options, final String optionName, final String sysOptionName) {
+        handleOptimizationOption(options, optionName, sysOptionName, null);
+    }
+
+    private void handleOptimizationOption(final Map<String, Boolean> options, final String optionName, final String sysOptionName, String def) {
+        String propValue = getSystemPropertySafe(sysOptionName, def);
         boolean optionEnabled = propValue == null
                 ? (DEFAULT != null && Boolean.TRUE.equals(DEFAULT.getOptimizationOptions().get(optionName)))
-                : Boolean.parseBoolean(propValue);
-
-        if (optionEnabled) {
-            options.put(optionName, Boolean.TRUE);
-        }
-    }
-
-    private void handleJointCompilationOption(Map<String, Object> options, String optionName, String sysOptionName) {
-        String propValue = getSystemPropertySafe(sysOptionName);
-        boolean optionEnabled = propValue == null
-                ? (DEFAULT != null && Boolean.TRUE.equals(DEFAULT.getJointCompilationOptions().get(optionName)))
                 : Boolean.parseBoolean(propValue);
 
         if (optionEnabled) {
@@ -482,7 +472,7 @@ public class CompilerConfiguration {
      *
      * @param configuration The configuration to copy.
      */
-    public CompilerConfiguration(CompilerConfiguration configuration) {
+    public CompilerConfiguration(final CompilerConfiguration configuration) {
         setWarningLevel(configuration.getWarningLevel());
         setTargetDirectory(configuration.getTargetDirectory());
         setClasspathList(new LinkedList<String>(configuration.getClasspath()));
@@ -499,13 +489,13 @@ public class CompilerConfiguration {
         setSourceEncoding(configuration.getSourceEncoding());
         Map<String, Object> jointCompilationOptions = configuration.getJointCompilationOptions();
         if (jointCompilationOptions != null) {
-            jointCompilationOptions = new HashMap<String, Object>(jointCompilationOptions);
+            jointCompilationOptions = new HashMap<>(jointCompilationOptions);
         }
         setJointCompilationOptions(jointCompilationOptions);
         setPluginFactory(configuration.getPluginFactory());
         setDisabledGlobalASTTransformations(configuration.getDisabledGlobalASTTransformations());
-        setScriptExtensions(new LinkedHashSet<String>(configuration.getScriptExtensions()));
-        setOptimizationOptions(new HashMap<String, Boolean>(configuration.getOptimizationOptions()));
+        setScriptExtensions(new LinkedHashSet<>(configuration.getScriptExtensions()));
+        setOptimizationOptions(new HashMap<>(configuration.getOptimizationOptions()));
         setBytecodePostprocessor(configuration.getBytecodePostprocessor());
     }
 
@@ -560,7 +550,7 @@ public class CompilerConfiguration {
      *
      * @param configuration The properties to get flag values from.
      */
-    public CompilerConfiguration(Properties configuration) throws ConfigurationException {
+    public CompilerConfiguration(final Properties configuration) throws ConfigurationException {
         this();
         configure(configuration);
     }
@@ -571,8 +561,8 @@ public class CompilerConfiguration {
      * @param bytecodeVersion The parameter can take one of the values in {@link #ALLOWED_JDKS}.
      * @return true if the bytecode version is JDK 1.5+
      */
-    public static boolean isPostJDK5(String bytecodeVersion) {
-        return new BigDecimal(bytecodeVersion).compareTo(new BigDecimal(JDK5)) >= 0;
+    public static boolean isPostJDK5(final String bytecodeVersion) {
+        return isAtLeast(bytecodeVersion, JDK5);
     }
 
     /**
@@ -581,8 +571,8 @@ public class CompilerConfiguration {
      * @param bytecodeVersion The parameter can take one of the values in {@link #ALLOWED_JDKS}.
      * @return true if the bytecode version is JDK 1.7+
      */
-    public static boolean isPostJDK7(String bytecodeVersion) {
-        return new BigDecimal(bytecodeVersion).compareTo(new BigDecimal(JDK7)) >= 0;
+    public static boolean isPostJDK7(final String bytecodeVersion) {
+        return isAtLeast(bytecodeVersion, JDK7);
     }
 
     /**
@@ -591,8 +581,8 @@ public class CompilerConfiguration {
      * @param bytecodeVersion The parameter can take one of the values in {@link #ALLOWED_JDKS}.
      * @return true if the bytecode version is JDK 1.8+
      */
-    public static boolean isPostJDK8(String bytecodeVersion) {
-        return new BigDecimal(bytecodeVersion).compareTo(new BigDecimal(JDK8)) >= 0;
+    public static boolean isPostJDK8(final String bytecodeVersion) {
+        return isAtLeast(bytecodeVersion, JDK8);
     }
 
     /**
@@ -601,8 +591,8 @@ public class CompilerConfiguration {
      * @param bytecodeVersion The parameter can take one of the values in {@link #ALLOWED_JDKS}.
      * @return true if the bytecode version is JDK 9.0+
      */
-    public static boolean isPostJDK9(String bytecodeVersion) {
-        return new BigDecimal(bytecodeVersion).compareTo(new BigDecimal(JDK9)) >= 0;
+    public static boolean isPostJDK9(final String bytecodeVersion) {
+        return isAtLeast(bytecodeVersion, JDK9);
     }
 
     /**
@@ -610,7 +600,7 @@ public class CompilerConfiguration {
      * For a list of available properties look at {@link #CompilerConfiguration(Properties)}.
      * @param configuration The properties to get flag values from.
      */
-    public void configure(Properties configuration) throws ConfigurationException {
+    public void configure(final Properties configuration) throws ConfigurationException {
         String text;
         int numeric;
 
@@ -694,7 +684,7 @@ public class CompilerConfiguration {
         text = configuration.getProperty("groovy.disabled.global.ast.transformations");
         if (text != null) {
             String[] classNames = text.split(",\\s*}");
-            Set<String> blacklist = new HashSet<String>(Arrays.asList(classNames));
+            Set<String> blacklist = new HashSet<>(Arrays.asList(classNames));
             setDisabledGlobalASTTransformations(blacklist);
         }
     }
@@ -710,11 +700,10 @@ public class CompilerConfiguration {
     /**
      * Sets the warning level. See {@link WarningMessage} for level details.
      */
-    public void setWarningLevel(int level) {
+    public void setWarningLevel(final int level) {
         if (level < WarningMessage.NONE || level > WarningMessage.PARANOIA) {
             this.warningLevel = WarningMessage.LIKELY_ERRORS;
-        }
-        else {
+        } else {
             this.warningLevel = level;
         }
     }
@@ -729,13 +718,8 @@ public class CompilerConfiguration {
     /**
      * Sets the encoding to be used when reading source files.
      */
-    public void setSourceEncoding(String encoding) {
-        setSourceEncodingOrDefault(encoding);
-    }
-
-    private void setSourceEncodingOrDefault(String encoding) {
-        if (encoding == null) encoding = DEFAULT_SOURCE_ENCODING;
-        this.sourceEncoding = encoding;
+    public void setSourceEncoding(final String encoding) {
+        this.sourceEncoding = Optional.ofNullable(encoding).orElse(DEFAULT_SOURCE_ENCODING);
     }
 
     /**
@@ -752,7 +736,7 @@ public class CompilerConfiguration {
      * @deprecated not used anymore, has no effect
      */
     @Deprecated
-    public void setOutput(PrintWriter output) {
+    public void setOutput(final PrintWriter output) {
         if (output == null) {
             this.output = new PrintWriter(NullWriter.DEFAULT);
         } else {
@@ -770,11 +754,11 @@ public class CompilerConfiguration {
     /**
      * Sets the target directory.
      */
-    public void setTargetDirectory(String directory) {
+    public void setTargetDirectory(final String directory) {
         setTargetDirectorySafe(directory);
     }
 
-    private void setTargetDirectorySafe(String directory) {
+    private void setTargetDirectorySafe(final String directory) {
         if (directory != null && directory.length() > 0) {
             this.targetDirectory = new File(directory);
         } else {
@@ -785,7 +769,7 @@ public class CompilerConfiguration {
     /**
      * Sets the target directory.
      */
-    public void setTargetDirectory(File directory) {
+    public void setTargetDirectory(final File directory) {
         this.targetDirectory = directory;
     }
 
@@ -799,8 +783,8 @@ public class CompilerConfiguration {
     /**
      * Sets the classpath.
      */
-    public void setClasspath(String classpath) {
-        this.classpath = new LinkedList<String>();
+    public void setClasspath(final String classpath) {
+        this.classpath = new LinkedList<>();
         StringTokenizer tokenizer = new StringTokenizer(classpath, File.pathSeparator);
         while (tokenizer.hasMoreTokens()) {
             this.classpath.add(tokenizer.nextToken());
@@ -811,8 +795,8 @@ public class CompilerConfiguration {
      * sets the classpath using a list of Strings
      * @param parts list of strings containing the classpath parts
      */
-    public void setClasspathList(List<String> parts) {
-        this.classpath = new LinkedList<String>(parts);
+    public void setClasspathList(final List<String> parts) {
+        this.classpath = new LinkedList<>(parts);
     }
 
     /**
@@ -825,7 +809,7 @@ public class CompilerConfiguration {
     /**
      * Turns verbose operation on or off.
      */
-    public void setVerbose(boolean verbose) {
+    public void setVerbose(final boolean verbose) {
         this.verbose = verbose;
     }
 
@@ -839,7 +823,7 @@ public class CompilerConfiguration {
     /**
      * Turns debugging operation on or off.
      */
-    public void setDebug(boolean debug) {
+    public void setDebug(final boolean debug) {
         this.debug = debug;
     }
 
@@ -853,7 +837,7 @@ public class CompilerConfiguration {
     /**
      * Turns parameter metadata generation on or off.
      */
-    public void setParameters(boolean parameters) {
+    public void setParameters(final boolean parameters) {
         this.parameters = parameters;
     }
 
@@ -869,7 +853,7 @@ public class CompilerConfiguration {
      * non-fatal errors (per unit) that should be tolerated before
      * compilation is aborted.
      */
-    public void setTolerance(int tolerance) {
+    public void setTolerance(final int tolerance) {
         this.tolerance = tolerance;
     }
 
@@ -885,36 +869,34 @@ public class CompilerConfiguration {
      * Sets the name of the base class for scripts.  It must be a subclass
      * of Script.
      */
-    public void setScriptBaseClass(String scriptBaseClass) {
+    public void setScriptBaseClass(final String scriptBaseClass) {
         this.scriptBaseClass = scriptBaseClass;
     }
 
     public ParserPluginFactory getPluginFactory() {
         if (pluginFactory == null) {
-            pluginFactory = ParserPluginFactory.antlr4(this);
+            pluginFactory = ParserPluginFactory.antlr4();
         }
         return pluginFactory;
     }
 
-    public void setPluginFactory(ParserPluginFactory pluginFactory) {
+    public void setPluginFactory(final ParserPluginFactory pluginFactory) {
         this.pluginFactory = pluginFactory;
     }
 
-    public void setScriptExtensions(Set<String> scriptExtensions) {
-        if(scriptExtensions == null) scriptExtensions = new LinkedHashSet<String>();
-        this.scriptExtensions = scriptExtensions;
+    public void setScriptExtensions(final Set<String> scriptExtensions) {
+        this.scriptExtensions = Optional.ofNullable(scriptExtensions).orElseGet(LinkedHashSet::new);
     }
 
     public Set<String> getScriptExtensions() {
-        if(scriptExtensions == null || scriptExtensions.isEmpty()) {
+        if (scriptExtensions == null || scriptExtensions.isEmpty()) {
             /*
              *  this happens
              *  *    when groovyc calls FileSystemCompiler in forked mode, or
              *  *    when FileSystemCompiler is run from the command line directly, or
              *  *    when groovy was not started using groovyc or FileSystemCompiler either
              */
-            scriptExtensions = SourceExtensionHandler.getRegisteredExtensions(
-                    this.getClass().getClassLoader());
+            scriptExtensions = SourceExtensionHandler.getRegisteredExtensions(getClass().getClassLoader());
         }
         return scriptExtensions;
     }
@@ -923,47 +905,45 @@ public class CompilerConfiguration {
         return defaultScriptExtension;
     }
 
-
-    public void setDefaultScriptExtension(String defaultScriptExtension) {
+    public void setDefaultScriptExtension(final String defaultScriptExtension) {
         this.defaultScriptExtension = defaultScriptExtension;
     }
 
-    public void setRecompileGroovySource(boolean recompile) {
-        recompileGroovySource = recompile;
-    }
-
-    public boolean getRecompileGroovySource(){
+    public boolean getRecompileGroovySource() {
         return recompileGroovySource;
     }
 
-    public void setMinimumRecompilationInterval(int time) {
-        minimumRecompilationInterval = Math.max(0,time);
+    public void setRecompileGroovySource(final boolean recompile) {
+        recompileGroovySource = recompile;
     }
 
     public int getMinimumRecompilationInterval() {
         return minimumRecompilationInterval;
     }
 
+    public void setMinimumRecompilationInterval(final int time) {
+        minimumRecompilationInterval = Math.max(0,time);
+    }
+
     /**
-     * Allow setting the bytecode compatibility level. The parameter can take
-     * one of the values in {@link #ALLOWED_JDKS}.
+     * Sets the bytecode compatibility level. The parameter can take one of the values
+     * in {@link #ALLOWED_JDKS}.
      *
      * @param version the bytecode compatibility level
      */
-    public void setTargetBytecode(String version) {
+    public void setTargetBytecode(final String version) {
         setTargetBytecodeIfValid(version);
     }
 
-    private void setTargetBytecodeIfValid(String version) {
-        if (JDK_TO_BYTECODE_VERSION_MAP.keySet().contains(version)) {
+    private void setTargetBytecodeIfValid(final String version) {
+        if (JDK_TO_BYTECODE_VERSION_MAP.containsKey(version)) {
             this.targetBytecode = version;
         }
     }
 
     /**
-     * Retrieves the compiler bytecode compatibility level.
-     * Defaults to the minimum officially supported bytecode
-     * version for any particular Groovy version.
+     * Retrieves the compiler bytecode compatibility level. Defaults to the minimum
+     * officially supported bytecode version for any particular Groovy version.
      *
      * @return bytecode compatibility level
      */
@@ -985,12 +965,8 @@ public class CompilerConfiguration {
      *
      * @param previewFeatures whether to support preview features
      */
-    public void setPreviewFeatures(boolean previewFeatures) {
+    public void setPreviewFeatures(final boolean previewFeatures) {
         this.previewFeatures = previewFeatures;
-    }
-
-    private static String getMinBytecodeVersion() {
-        return JDK8;
     }
 
     /**
@@ -1006,7 +982,7 @@ public class CompilerConfiguration {
      * Using null will disable joint compilation.
      * @param options the options
      */
-    public void setJointCompilationOptions(Map<String, Object> options) {
+    public void setJointCompilationOptions(final Map<String, Object> options) {
         jointCompilationOptions = options;
     }
 
@@ -1026,7 +1002,7 @@ public class CompilerConfiguration {
      * @param options the options.
      * @throws IllegalArgumentException if the options are null
      */
-    public void setOptimizationOptions(Map<String, Boolean> options) {
+    public void setOptimizationOptions(final Map<String, Boolean> options) {
         if (options == null) throw new IllegalArgumentException("provided option map must not be null");
         optimizationOptions = options;
     }
@@ -1037,9 +1013,9 @@ public class CompilerConfiguration {
      * @param customizers the list of customizers to be added
      * @return this configuration instance
      */
-    public CompilerConfiguration addCompilationCustomizers(CompilationCustomizer... customizers) {
+    public CompilerConfiguration addCompilationCustomizers(final CompilationCustomizer... customizers) {
         if (customizers == null) throw new IllegalArgumentException("provided customizers list must not be null");
-        compilationCustomizers.addAll(Arrays.asList(customizers));
+        Collections.addAll(compilationCustomizers, customizers);
         return this;
     }
 
@@ -1067,7 +1043,7 @@ public class CompilerConfiguration {
      * META-INF/services/org.codehaus.groovy.transform.ASTTransformation file.
      * If you explicitly add a global AST transformation in your compilation process,
      * for example using the {@link org.codehaus.groovy.control.customizers.ASTTransformationCustomizer} or
-     * using a {@link org.codehaus.groovy.control.CompilationUnit.PrimaryClassNodeOperation},
+     * using a {@link org.codehaus.groovy.control.CompilationUnit.IPrimaryClassNodeOperation},
      * then nothing will prevent the transformation from being loaded.
      *
      * @param disabledGlobalASTTransformations a set of fully qualified class names of global AST transformations
@@ -1086,111 +1062,26 @@ public class CompilerConfiguration {
     }
 
     /**
-     * Check whether invoke dynamic enabled
-     * @return the result
+     * Checks if invoke dynamic is enabled.
      */
     public boolean isIndyEnabled() {
-        Boolean indyEnabled = this.getOptimizationOptions().get(INVOKEDYNAMIC);
-
-        if (null == indyEnabled) {
-            return false;
-        }
-
-        return indyEnabled;
+        Boolean indyEnabled = getOptimizationOptions().get(INVOKEDYNAMIC);
+        return indyEnabled != Boolean.FALSE;
     }
 
     /**
-     * Check whether groovydoc enabled
-     * @return the result
+     * Checks if groovydoc is enabled.
      */
     public boolean isGroovydocEnabled() {
-        Boolean groovydocEnabled = this.getOptimizationOptions().get(GROOVYDOC);
-
-        if (null == groovydocEnabled) {
-            return false;
-        }
-
-        return groovydocEnabled;
+        Boolean groovydocEnabled = getOptimizationOptions().get(GROOVYDOC);
+        return Optional.ofNullable(groovydocEnabled).orElse(Boolean.FALSE);
     }
 
     /**
-     * Check whether runtime groovydoc enabled
-     * @return the result
+     * Checks if runtime groovydoc is enabled.
      */
     public boolean isRuntimeGroovydocEnabled() {
-        Boolean runtimeGroovydocEnabled = this.getOptimizationOptions().get(RUNTIME_GROOVYDOC);
-
-        if (null == runtimeGroovydocEnabled) {
-            return false;
-        }
-
-        return runtimeGroovydocEnabled;
+        Boolean runtimeGroovydocEnabled = getOptimizationOptions().get(RUNTIME_GROOVYDOC);
+        return Optional.ofNullable(runtimeGroovydocEnabled).orElse(Boolean.FALSE);
     }
-
-    /**
-     * Check whether mem stub enabled
-     * @return the result
-     */
-    public boolean isMemStubEnabled() {
-        Object memStubEnabled = this.getJointCompilationOptions().get(MEM_STUB);
-
-        if (null == memStubEnabled) {
-            return false;
-        }
-
-        return "true".equals(memStubEnabled.toString());
-    }
-
-
-//       See http://groovy.329449.n5.nabble.com/What-the-static-compile-by-default-tt5750118.html
-//           https://issues.apache.org/jira/browse/GROOVY-8543
-//
-//    {
-//        // this object initializer assures that `enableCompileStaticByDefault` must be invoked no matter which constructor called.
-//        if (getBooleanSafe("groovy.compile.static")) {
-//            enableCompileStaticByDefault();
-//        }
-//    }
-//
-//
-//    private void enableCompileStaticByDefault() {
-//        compilationCustomizers.add(
-//            new CompilationCustomizer(CompilePhase.CONVERSION) {
-//                @Override
-//                public void call(final SourceUnit source, GeneratorContext context, ClassNode classNode) throws CompilationFailedException {
-//                    for (ClassNode cn : source.getAST().getClasses()) {
-//                        newClassCodeVisitor(source).visitClass(cn);
-//                    }
-//                }
-//
-//                private ClassCodeVisitorSupport newClassCodeVisitor(SourceUnit source) {
-//                    return new ClassCodeVisitorSupport() {
-//                        @Override
-//                        public void visitClass(ClassNode node) {
-//                            enableCompileStatic(node);
-//                        }
-//
-//                        private void enableCompileStatic(ClassNode classNode) {
-//                            if (!classNode.getAnnotations(ClassHelper.make(GROOVY_TRANSFORM_COMPILE_STATIC)).isEmpty()) {
-//                                return;
-//                            }
-//                            if (!classNode.getAnnotations(ClassHelper.make(GROOVY_TRANSFORM_COMPILE_DYNAMIC)).isEmpty()) {
-//                                return;
-//                            }
-//
-//                            classNode.addAnnotation(new AnnotationNode(ClassHelper.make(GROOVY_TRANSFORM_COMPILE_STATIC)));
-//                        }
-//
-//                        @Override
-//                        protected SourceUnit getSourceUnit() {
-//                            return source;
-//                        }
-//
-//                        private static final String GROOVY_TRANSFORM_COMPILE_STATIC = "groovy.transform.CompileStatic";
-//                        private static final String GROOVY_TRANSFORM_COMPILE_DYNAMIC = "groovy.transform.CompileDynamic";
-//                    };
-//                }
-//            }
-//        );
-//    }
 }

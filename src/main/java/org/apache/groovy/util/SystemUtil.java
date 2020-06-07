@@ -31,7 +31,7 @@ public class SystemUtil {
         if (nameValue == null) throw new IllegalArgumentException("argument should not be null");
 
         String name, value;
-        int i = nameValue.indexOf("=");
+        int i = nameValue.indexOf('=');
 
         if (i == -1) {
             name = nameValue;
@@ -125,11 +125,28 @@ public class SystemUtil {
      *
      * @param name the name of the system property.
      * @param def the default value
-     * @return value of the Integer system property or false
+     * @return value of the Integer system property or the default value
      */
     public static Integer getIntegerSafe(String name, Integer def) {
         try {
             return Integer.getInteger(name, def);
+        } catch (SecurityException ignore) {
+            // suppress exception
+        }
+
+        return def;
+    }
+
+    /**
+     * Retrieves an Long System property
+     *
+     * @param name the name of the system property.
+     * @param def the default value
+     * @return value of the Long system property or the default value
+     */
+    public static Long getLongSafe(String name, Long def) {
+        try {
+            return Long.getLong(name, def);
         } catch (SecurityException ignore) {
             // suppress exception
         }

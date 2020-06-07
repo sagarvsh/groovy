@@ -17,12 +17,13 @@
  *  under the License.
  */
 dependencies {
-    compile rootProject
-    testCompile rootProject.sourceSets.test.runtimeClasspath
-    compile project(':groovy-templates')
-    runtime project(':groovy-docgenerator')
-    testCompile project(':groovy-test')
-    testCompile "org.apache.ant:ant-testutil:$antVersion"
+    api rootProject // GroovydocVisitor extends ClassCodeVisitorSupport...
+    api "com.github.javaparser:javaparser-core:$javaParserVersion" // GroovydocJavaVisitor extends VoidVisitorAdapter...
+    implementation project(':groovy-templates')
+    implementation project(':groovy-docgenerator')
+    testImplementation rootProject.sourceSets.test.runtimeClasspath
+    testImplementation project(':groovy-test')
+    testImplementation "org.apache.ant:ant-testutil:$antVersion"
 }
 
 compileJava {

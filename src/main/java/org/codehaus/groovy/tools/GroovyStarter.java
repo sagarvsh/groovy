@@ -35,40 +35,45 @@ public class GroovyStarter {
     }
     
     
-    public static void rootLoader(String args[]) {
+    public static void rootLoader(String[] args) {
         String conf = System.getProperty("groovy.starter.conf",null);
         final LoaderConfiguration lc = new LoaderConfiguration();
         
         // evaluate parameters
         boolean hadMain=false, hadConf=false, hadCP=false;
         int argsOffset = 0;
+        label:
         while (args.length-argsOffset>0 && !(hadMain && hadConf && hadCP)) {
-            if (args[argsOffset].equals("--classpath")) {
-                if (hadCP) break;
-                if (args.length==argsOffset+1) {
-                    exit("classpath parameter needs argument");
-                }
-                lc.addClassPath(args[argsOffset+1]);
-                argsOffset+=2;
-                hadCP=true;
-            } else if (args[argsOffset].equals("--main")) {
-                if (hadMain) break;
-                if (args.length==argsOffset+1) {
-                    exit("main parameter needs argument");
-                }
-                lc.setMainClass(args[argsOffset+1]);
-                argsOffset+=2;
-                hadMain=true;
-            } else if (args[argsOffset].equals("--conf")) {
-                if (hadConf) break;
-                if (args.length==argsOffset+1) {
-                    exit("conf parameter needs argument");
-                }
-                conf=args[argsOffset+1];
-                argsOffset+=2;
-                hadConf=true;
-            } else {
-                break;
+            switch (args[argsOffset]) {
+                case "--classpath":
+                    if (hadCP) break label;
+                    if (args.length == argsOffset + 1) {
+                        exit("classpath parameter needs argument");
+                    }
+                    lc.addClassPath(args[argsOffset + 1]);
+                    argsOffset += 2;
+                    hadCP = true;
+                    break;
+                case "--main":
+                    if (hadMain) break label;
+                    if (args.length == argsOffset + 1) {
+                        exit("main parameter needs argument");
+                    }
+                    lc.setMainClass(args[argsOffset + 1]);
+                    argsOffset += 2;
+                    hadMain = true;
+                    break;
+                case "--conf":
+                    if (hadConf) break label;
+                    if (args.length == argsOffset + 1) {
+                        exit("conf parameter needs argument");
+                    }
+                    conf = args[argsOffset + 1];
+                    argsOffset += 2;
+                    hadConf = true;
+                    break;
+                default:
+                    break label;
             }            
         }
 
@@ -94,11 +99,7 @@ public class GroovyStarter {
             }
         }
         // create loader and execute main class
-        ClassLoader loader = AccessController.doPrivileged(new PrivilegedAction<RootLoader>() {
-            public RootLoader run() {
-                return new RootLoader(lc);
-            }
-        });
+        ClassLoader loader = AccessController.doPrivileged((PrivilegedAction<RootLoader>) () -> new RootLoader(lc));
         Method m=null;
         try {
             Class c = loader.loadClass(lc.getMainClass());
@@ -123,7 +124,7 @@ public class GroovyStarter {
         System.exit(1);
     }
     
-    public static void main(String args[]) {
+    public static void main(String[] args) {
         try {
             rootLoader(args);
         } catch (Throwable t) {

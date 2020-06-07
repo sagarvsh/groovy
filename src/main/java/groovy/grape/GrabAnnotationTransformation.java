@@ -58,6 +58,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -79,7 +80,7 @@ import static org.codehaus.groovy.transform.AbstractASTTransformation.getMemberS
 @GroovyASTTransformation(phase=CompilePhase.CONVERSION)
 public class GrabAnnotationTransformation extends ClassCodeVisitorSupport implements ASTTransformation, CompilationUnitAware {
     private static final String GRAB_CLASS_NAME = Grab.class.getName();
-    private static final String GRAB_DOT_NAME = GRAB_CLASS_NAME.substring(GRAB_CLASS_NAME.lastIndexOf("."));
+    private static final String GRAB_DOT_NAME = GRAB_CLASS_NAME.substring(GRAB_CLASS_NAME.lastIndexOf('.'));
     private static final String GRAB_SHORT_NAME = GRAB_DOT_NAME.substring(1);
 
     private static final String GRABEXCLUDE_CLASS_NAME = GrabExclude.class.getName();
@@ -115,7 +116,7 @@ public class GrabAnnotationTransformation extends ClassCodeVisitorSupport implem
     private static final String SYSTEM_PROPERTIES_SETTING = Grape.SYSTEM_PROPERTIES_SETTING;
 
     private static String dotName(String className) {
-        return className.substring(className.lastIndexOf("."));
+        return className.substring(className.lastIndexOf('.'));
     }
 
     private static String shortName(String className) {
@@ -201,9 +202,9 @@ public class GrabAnnotationTransformation extends ClassCodeVisitorSupport implem
             }
         }
 
-        List<Map<String,Object>> grabMaps = new ArrayList<Map<String,Object>>();
-        List<Map<String,Object>> grabMapsInit = new ArrayList<Map<String,Object>>();
-        List<Map<String,Object>> grabExcludeMaps = new ArrayList<Map<String,Object>>();
+        Collection<Map<String,Object>> grabMaps = new LinkedHashSet<>();
+        Collection<Map<String,Object>> grabMapsInit = new ArrayList<>();
+        Collection<Map<String,Object>> grabExcludeMaps = new ArrayList<>();
 
         for (ClassNode classNode : sourceUnit.getAST().getClasses()) {
             grabAnnotations = new ArrayList<AnnotationNode>();
@@ -387,7 +388,7 @@ public class GrabAnnotationTransformation extends ClassCodeVisitorSupport implem
         }
     }
 
-    private void callGrabAsStaticInitIfNeeded(ClassNode classNode, ClassNode grapeClassNode, List<Map<String,Object>> grabMapsInit, List<Map<String, Object>> grabExcludeMaps) {
+    private void callGrabAsStaticInitIfNeeded(ClassNode classNode, ClassNode grapeClassNode, Collection<Map<String,Object>> grabMapsInit, Collection<Map<String, Object>> grabExcludeMaps) {
         List<Statement> grabInitializers = new ArrayList<Statement>();
         MapExpression basicArgs = new MapExpression();
         if (autoDownload != null)  {
@@ -400,7 +401,7 @@ public class GrabAnnotationTransformation extends ClassCodeVisitorSupport implem
 
         if (systemProperties != null && !systemProperties.isEmpty()) {
             BlockStatement block = new BlockStatement();
-            for(Map.Entry e : systemProperties.entrySet()) {
+            for(Map.Entry<String, String> e : systemProperties.entrySet()) {
                 block.addStatement(stmt(callX(SYSTEM_CLASSNODE, "setProperty", args(constX(e.getKey()), constX(e.getValue())))));
             }
             StaticMethodCallExpression enabled = callX(SYSTEM_CLASSNODE, "getProperty", args(constX("groovy.grape.enable"), constX("true")));

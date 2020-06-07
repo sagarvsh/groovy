@@ -48,5 +48,33 @@ class WithSTCTest extends StaticTypeCheckingTestCase {
             assert Test.a( 'TIM' ) == 'tim'
         '''
     }
+
+    void testIntReturnType() {
+        assertScript '''
+            class Test {
+               static int a(String s) {
+                    s.toCharArray().with {
+                        length
+                    }
+                }
+            }
+
+            assert Test.a( 'Daniel' ) == 6 
+        '''
+    }
+
+    void testLongReturnType() {
+        assertScript '''
+            class Test {
+               static long a() {
+                    Long.with {
+                        MAX_VALUE
+                    }
+                }
+            }
+
+            assert Test.a() == Long.MAX_VALUE
+        '''
+    }
 }
 

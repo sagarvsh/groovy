@@ -349,10 +349,11 @@ public class MetaClassHelper {
 
     public static long calculateParameterDistance(Class[] arguments, ParameterTypes pt) {
         CachedClass[] parameters = pt.getParameterTypes();
-        if (parameters.length == 0) return 0;
+        final int parametersLength = parameters.length;
+        if (parametersLength == 0) return 0;
 
         long ret = 0;
-        int noVargsLength = parameters.length - 1;
+        int noVargsLength = parametersLength - 1;
 
         // if the number of parameters does not match we have 
         // a vargs usage
@@ -444,7 +445,8 @@ public class MetaClassHelper {
             ret += calculateParameterDistance(arguments[i], parameters[i]);
         }
 
-        if (arguments.length == parameters.length) {
+        final int argumentsLength = arguments.length;
+        if (argumentsLength == parametersLength) {
             // case C&D, we use baseType to calculate and set it
             // to the value we need according to case C and D
             CachedClass baseType = parameters[noVargsLength]; // case C
@@ -453,13 +455,13 @@ public class MetaClassHelper {
                 ret += 2L << VARGS_SHIFT; // penalty for vargs
             }
             ret += calculateParameterDistance(arguments[noVargsLength], baseType);
-        } else if (arguments.length > parameters.length) {
+        } else if (argumentsLength > parametersLength) {
             // case B
             // we give our a vargs penalty for each exceeding argument and iterate
             // by using parameters[noVargsLength].getComponentType()
-            ret += (2L + arguments.length - parameters.length) << VARGS_SHIFT; // penalty for vargs
+            ret += (2L + argumentsLength - parametersLength) << VARGS_SHIFT; // penalty for vargs
             CachedClass vargsType = ReflectionCache.getCachedClass(parameters[noVargsLength].getTheClass().getComponentType());
-            for (int i = noVargsLength; i < arguments.length; i++) {
+            for (int i = noVargsLength; i < argumentsLength; i++) {
                 ret += calculateParameterDistance(arguments[i], vargsType);
             }
         } else {
@@ -744,10 +746,7 @@ public class MetaClassHelper {
                     || classToTransformFrom == BigInteger.class)
                 return true;
         } else if (classToTransformTo == BigInteger.class) {
-            if (classToTransformFrom == Integer.class
-                    || classToTransformFrom == Long.class
-                    || classToTransformFrom == Short.class
-                    || classToTransformFrom == Byte.class)
+            if (isIntegerLongShortByte(classToTransformFrom))
                 return true;
         } else if (classToTransformTo == Long.class) {
             if (classToTransformFrom == Integer.class
@@ -755,10 +754,7 @@ public class MetaClassHelper {
                     || classToTransformFrom == Byte.class)
                 return true;
         } else if (classToTransformTo == Float.class) {
-            if (classToTransformFrom == Integer.class
-                    || classToTransformFrom == Long.class
-                    || classToTransformFrom == Short.class
-                    || classToTransformFrom == Byte.class)
+            if (isIntegerLongShortByte(classToTransformFrom))
                 return true;
         } else if (classToTransformTo == Short.class) {
             if (classToTransformFrom == Byte.class)
@@ -770,6 +766,13 @@ public class MetaClassHelper {
         }
 
         return ReflectionCache.isAssignableFrom(classToTransformTo, classToTransformFrom);
+    }
+
+    private static boolean isIntegerLongShortByte(Class classToTransformFrom) {
+        return classToTransformFrom == Integer.class
+                || classToTransformFrom == Long.class
+                || classToTransformFrom == Short.class
+                || classToTransformFrom == Byte.class;
     }
 
     public static boolean isGenericSetMethod(MetaMethod method) {
@@ -786,8 +789,9 @@ public class MetaClassHelper {
     }
 
     public static boolean parametersAreCompatible(Class[] arguments, Class[] parameters) {
-        if (arguments.length != parameters.length) return false;
-        for (int i = 0; i < arguments.length; i++) {
+        final int argumentsLength = arguments.length;
+        if (argumentsLength != parameters.length) return false;
+        for (int i = 0; i < argumentsLength; i++) {
             if (!isAssignableFrom(parameters[i], arguments[i])) return false;
         }
         return true;
@@ -820,7 +824,7 @@ public class MetaClassHelper {
                 value = value.substring(0, MAX_ARG_LEN - 2) + "..";
             }
             if (argument instanceof String) {
-                value = "\'" + value + "\'";
+                value = "'" + value + "'";
             }
         } catch (Exception e) {
             value = shortName(argument);

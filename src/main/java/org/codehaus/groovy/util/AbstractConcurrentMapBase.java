@@ -68,24 +68,22 @@ public abstract class AbstractConcurrentMapBase {
 
     public int fullSize() {
         int count = 0;
-        for (int i = 0; i < segments.length; i++) {
-            segments[i].lock();
+        for (Segment segment : segments) {
+            segment.lock();
             try {
-                for (int j = 0; j < segments[i].table.length; j++) {
-                    Object o = segments[i].table [j];
+                for (int j = 0; j < segment.table.length; j++) {
+                    Object o = segment.table[j];
                     if (o != null) {
                         if (o instanceof Entry) {
                             count++;
-                        }
-                        else {
-                            Object arr [] = (Object[]) o;
+                        } else {
+                            Object[] arr = (Object[]) o;
                             count += arr.length;
                         }
                     }
                 }
-            }
-            finally {
-                segments[i].unlock();
+            } finally {
+                segment.unlock();
             }
         }
         return count;
@@ -93,30 +91,28 @@ public abstract class AbstractConcurrentMapBase {
 
     public int size() {
         int count = 0;
-        for (int i = 0; i < segments.length; i++) {
-            segments[i].lock();
+        for (Segment segment : segments) {
+            segment.lock();
             try {
-                for (int j = 0; j < segments[i].table.length; j++) {
-                    Object o = segments[i].table [j];
+                for (int j = 0; j < segment.table.length; j++) {
+                    Object o = segment.table[j];
                     if (o != null) {
                         if (o instanceof Entry) {
                             Entry e = (Entry) o;
                             if (e.isValid())
-                              count++;
-                        }
-                        else {
-                            Object arr [] = (Object[]) o;
-                            for (int k = 0; k < arr.length; k++) {
-                                Entry info = (Entry) arr[k];
+                                count++;
+                        } else {
+                            Object[] arr = (Object[]) o;
+                            for (Object value : arr) {
+                                Entry info = (Entry) value;
                                 if (info != null && info.isValid())
                                     count++;
                             }
                         }
                     }
                 }
-            }
-            finally {
-                segments[i].unlock();
+            } finally {
+                segment.unlock();
             }
         }
         return count;
@@ -124,30 +120,28 @@ public abstract class AbstractConcurrentMapBase {
 
     public Collection values() {
         Collection result = new LinkedList();
-        for (int i = 0; i < segments.length; i++) {
-            segments[i].lock();
+        for (Segment segment : segments) {
+            segment.lock();
             try {
-                for (int j = 0; j < segments[i].table.length; j++) {
-                    Object o = segments[i].table [j];
+                for (int j = 0; j < segment.table.length; j++) {
+                    Object o = segment.table[j];
                     if (o != null) {
                         if (o instanceof Entry) {
                             Entry e = (Entry) o;
                             if (e.isValid())
-                              result.add(e);
-                        }
-                        else {
-                            Object arr [] = (Object[]) o;
-                            for (int k = 0; k < arr.length; k++) {
-                                Entry info = (Entry) arr[k];
+                                result.add(e);
+                        } else {
+                            Object[] arr = (Object[]) o;
+                            for (Object value : arr) {
+                                Entry info = (Entry) value;
                                 if (info != null && info.isValid())
                                     result.add(info);
                             }
                         }
                     }
                 }
-            }
-            finally {
-                segments[i].unlock();
+            } finally {
+                segment.unlock();
             }
         }
         return result;
@@ -185,21 +179,19 @@ public abstract class AbstractConcurrentMapBase {
                         }
                     }
                     else {
-                        Object arr [] = (Object[]) o;
+                        Object[] arr = (Object[]) o;
                         Object res = null;
-                        for (int i = 0; i < arr.length; i++) {
-                            Entry info = (Entry) arr[i];
+                        for (Object value : arr) {
+                            Entry info = (Entry) value;
                             if (info != null) {
-                                if(info != e) {
-                                  if (info.isValid()) {
-                                     res = put(info, res);
-                                  }
-                                  else {
-                                      newCount--;
-                                  }
-                                }
-                                else {
-                                  newCount--;
+                                if (info != e) {
+                                    if (info.isValid()) {
+                                        res = put(info, res);
+                                    } else {
+                                        newCount--;
+                                    }
+                                } else {
+                                    newCount--;
                                 }
                             }
                         }
@@ -239,7 +231,7 @@ public abstract class AbstractConcurrentMapBase {
                         }
                     }
                     else {
-                        Object arr [] = (Object[]) o;
+                        Object[] arr = (Object[]) o;
                         int localCount = 0;
                         for (int index = 0; index < arr.length; index++) {
                             Entry e = (Entry) arr[index];
@@ -261,8 +253,7 @@ public abstract class AbstractConcurrentMapBase {
             Object[] newTable = new Object[newCount+1 < threshold ? oldCapacity : oldCapacity << 1];
             int sizeMask = newTable.length - 1;
             newCount = 0;
-            for (int i = 0; i < oldCapacity ; i++) {
-                Object o = oldTable[i];
+            for (Object o : oldTable) {
                 if (o != null) {
                     if (o instanceof Entry) {
                         Entry e = (Entry) o;
@@ -271,11 +262,10 @@ public abstract class AbstractConcurrentMapBase {
                             put(e, index, newTable);
                             newCount++;
                         }
-                    }
-                    else {
-                        Object arr [] = (Object[]) o;
-                        for (int j = 0; j < arr.length; j++) {
-                            Entry e = (Entry) arr[j];
+                    } else {
+                        Object[] arr = (Object[]) o;
+                        for (Object value : arr) {
+                            Entry e = (Entry) value;
                             if (e != null && e.isValid()) {
                                 int index = e.getHash() & sizeMask;
                                 put(e, index, newTable);
@@ -296,15 +286,15 @@ public abstract class AbstractConcurrentMapBase {
             Object o = tab[index];
             if (o != null) {
                 if (o instanceof Entry) {
-                    Object arr [] = new Object [2];
+                    Object[] arr = new Object [2];
                     arr [0] = ee;
-                    arr [1] = (Entry) o;
+                    arr [1] = o;
                     tab[index] = arr;
                     return;
                 }
                 else {
-                    Object arr [] = (Object[]) o;
-                    Object newArr [] = new Object[arr.length+1];
+                    Object[] arr = (Object[]) o;
+                    Object[] newArr = new Object[arr.length+1];
                     newArr [0] = ee;
                     System.arraycopy(arr, 0, newArr, 1, arr.length);
                     tab [index] = newArr;
@@ -317,14 +307,14 @@ public abstract class AbstractConcurrentMapBase {
         private static Object put(Entry ee, Object o) {
             if (o != null) {
                 if (o instanceof Entry) {
-                    Object arr [] = new Object [2];
+                    Object[] arr = new Object [2];
                     arr [0] = ee;
-                    arr [1] = (Entry) o;
+                    arr [1] = o;
                     return arr;
                 }
                 else {
-                    Object arr [] = (Object[]) o;
-                    Object newArr [] = new Object[arr.length+1];
+                    Object[] arr = (Object[]) o;
+                    Object[] newArr = new Object[arr.length+1];
                     newArr [0] = ee;
                     System.arraycopy(arr, 0, newArr, 1, arr.length);
                     return newArr;

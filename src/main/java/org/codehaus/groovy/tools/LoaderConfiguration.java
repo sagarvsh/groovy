@@ -170,7 +170,7 @@ public class LoaderConfiguration {
             if (propertyIndexStart == -1) break;
             result.append(str, propertyIndexEnd, propertyIndexStart);
 
-            propertyIndexEnd = str.indexOf("}", propertyIndexStart);
+            propertyIndexEnd = str.indexOf('}', propertyIndexStart);
             if (propertyIndexEnd == -1) break;
 
             String propertyKey = str.substring(propertyIndexStart + 2, propertyIndexEnd);
@@ -192,9 +192,9 @@ public class LoaderConfiguration {
         }
 
         if (propertyIndexStart == -1 || propertyIndexStart >= str.length()) {
-            result.append(str.substring(propertyIndexEnd));
+            result.append(str, propertyIndexEnd, str.length());
         } else if (propertyIndexEnd == -1) {
-            result.append(str.substring(propertyIndexStart));
+            result.append(str, propertyIndexStart, str.length());
         }
 
         return result.toString();
